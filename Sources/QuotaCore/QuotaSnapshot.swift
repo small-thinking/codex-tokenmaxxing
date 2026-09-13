@@ -27,6 +27,13 @@ public struct WeeklySnapshot: Codable, Equatable, Sendable {
         return min(1, secondsRemaining / (Double(windowDurationMins) * 60))
     }
 
+    /// Positive means less quota has been consumed than the whole-window uniform baseline.
+    /// This is a percentage-point gap, not a recent usage rate.
+    public func paceGap(at date: Date) -> Double? {
+        guard !isStale(at: date), let time = remainingTimeFraction(at: date) else { return nil }
+        return remainingPercent - time * 100
+    }
+
     public func isStale(at date: Date, maxAge: TimeInterval = 600) -> Bool {
         if let resetsAt, resetsAt <= date { return true }
         return date.timeIntervalSince(fetchedAt) > maxAge

@@ -67,7 +67,8 @@ struct TestMain {
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
             ("quota ring threshold colors in light and dark", { try rings.thresholdColors() }),
-            ("neutral time, unknown and stale rings", { try rings.neutralTimeUnknownAndStale() }),
+            ("unknown and stale rings", { try rings.unknownAndStale() }),
+            ("inverse time colors and weekly pace", { try rings.inverseTimeColorsAndPace() }),
             ("weekly window in primary", { try core.testWeeklyWindowMayBePrimary() }),
             ("weekly secondary and map precedence", { try core.testWeeklyWindowMayBeSecondaryAndMapTakesPrecedence() }),
             ("unrelated map blocks legacy fallback", { try core.testUnrelatedMapBucketDoesNotFallBackToLegacy() }),

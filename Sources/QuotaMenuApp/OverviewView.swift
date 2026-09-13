@@ -1,7 +1,11 @@
 import SwiftUI
+import QuotaMenuUI
 
 struct OverviewView: View {
     @ObservedObject var model: UsageModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var appearance: NSAppearance { NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)! }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -27,9 +31,20 @@ struct OverviewView: View {
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Outer ring · quota remaining\nInner ring · time until reset")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                legend("Outer · quota remaining", value: model.percentText,
+                       color: model.snapshot.map { RingIcon.quotaColor(remaining: $0.remainingPercent, appearance: appearance) })
+                legend("Inner · time until reset", value: model.timePercentText,
+                       color: model.snapshot?.remainingTimeFraction(at: model.now).map {
+                           RingIcon.timeColor(remainingFraction: $0, appearance: appearance)
+                       })
+                Text("Inner turns greener as reset approaches.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(model.paceText).font(.system(size: 11, weight: .medium))
+                Text("Compare filled proportions, not arc lengths. Pace uses a uniform weekly baseline, not recent activity.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             HStack(spacing: 10) {
@@ -47,5 +62,15 @@ struct OverviewView: View {
         }
         .padding(20)
         .frame(width: 340)
+    }
+
+    private func legend(_ label: String, value: String, color: NSColor?) -> some View {
+        HStack(spacing: 7) {
+            Circle().stroke(Color(nsColor: model.isStale ? .secondaryLabelColor : (color ?? .secondaryLabelColor)), lineWidth: 2.5)
+                .frame(width: 10, height: 10)
+            Text(label)
+            Spacer()
+            Text(value).monospacedDigit()
+        }.font(.system(size: 11))
     }
 }

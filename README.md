@@ -4,11 +4,12 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 
 - Outer ring: quota remaining, from 100% to 0%.
 - Outer ring color: **green at 80–100%**, **mint/teal at 50–<80%**, **amber at 20–<50%**, and **red below 20%**. The empty track stays red at 0%.
-- Inner ring: time remaining until the weekly reset, from full to empty, in a separate neutral shade.
+- Inner ring: time remaining until the weekly reset, from full to empty. Its colors run in reverse: **red above 80% time remaining**, **amber at >50–80%**, **mint/teal at >20–50%**, and **green at 20% or less**. Green means the reset is near, not that quota is abundant.
 - Percentage: the latest weekly quota reading.
-- Click for the reset countdown, exact local reset time, refresh, and quit.
+- Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
+- Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. This does not measure recent activity. Stale readings hide pace.
 
-This first iteration deliberately focuses on the menu bar. History charts, pacing analytics, reset-credit cards, and launch at login are planned separately.
+This first iteration deliberately focuses on the menu bar. History charts, recent pacing analytics, reset-credit cards, and launch at login are planned separately.
 
 ## Requirements
 
@@ -46,7 +47,7 @@ For local development:
 
 Tests use local fake app-server executables and do not query an authenticated account. The fake servers require `/usr/bin/python3`, supplied by Command Line Tools. A small dependency-free check executable reports each failure and exits nonzero, so neither XCTest nor the Swift Testing runtime is required.
 
-The checks also render the actual AppKit rings offscreen and verify color boundaries, neutral time/unknown indicators, and dim neutral stale readings under light and dark appearances. To export a synthetic contact sheet with 1× and enlarged icons after running the tests:
+The checks also render the actual AppKit rings offscreen and verify color boundaries, inverse time colors, unknown indicators, and dim neutral stale readings under light and dark appearances. To export a synthetic contact sheet with 1× and enlarged icons after running the tests:
 
 ```sh
 "$(./scripts/swiftpm.sh build --show-bin-path)/QuotaChecks" --render-rings=.build/ring-preview.png
