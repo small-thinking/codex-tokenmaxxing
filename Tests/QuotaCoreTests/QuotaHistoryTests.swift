@@ -21,7 +21,7 @@ struct QuotaHistoryTests {
         return directory
     }
 
-    func hourlyBoundaryAllocationAndFixedBaseline() async throws {
+    func hourlyBoundaryAllocation() async throws {
         let directory = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try QuotaHistoryStore(directory: directory, at: hour)
@@ -34,7 +34,6 @@ struct QuotaHistoryTests {
         try expect(bins[0].observedSeconds == 50 && bins[1].observedSeconds == 50)
         try expect(bins[0].expectedSeconds == 3_600 && bins[1].expectedSeconds == 50)
         try expect(bins[1].coverageFraction == 1)
-        try expect(abs(HourlyQuotaBin.baselinePercentPerHour - 0.5952380952380952) < 0.000_001)
         let future = await store.bins(accountKey: keyA, at: hour.addingTimeInterval(7_200), count: 1)
         try expect(future[0].consumedPercent == nil && future[0].expectedSeconds == 0)
     }

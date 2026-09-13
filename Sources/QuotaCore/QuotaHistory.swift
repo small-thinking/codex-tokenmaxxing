@@ -3,7 +3,6 @@ import Foundation
 /// Observed weekly-quota consumption, apportioned across hour boundaries.
 /// nil consumption means no observed interval; zero means an observed interval with no change.
 public struct HourlyQuotaBin: Equatable, Sendable {
-    public static let baselinePercentPerHour = 100.0 / 168.0
     public let start: Date
     public let consumedPercent: Double?
     public let observedSeconds: TimeInterval
