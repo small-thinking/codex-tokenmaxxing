@@ -64,7 +64,10 @@ struct TestMain {
     static func main() async {
         let core = QuotaSnapshotTests()
         let connection = CodexConnectionTests()
+        let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("quota ring threshold colors in light and dark", { try rings.thresholdColors() }),
+            ("neutral time, unknown and stale rings", { try rings.neutralTimeUnknownAndStale() }),
             ("weekly window in primary", { try core.testWeeklyWindowMayBePrimary() }),
             ("weekly secondary and map precedence", { try core.testWeeklyWindowMayBeSecondaryAndMapTakesPrecedence() }),
             ("unrelated map blocks legacy fallback", { try core.testUnrelatedMapBucketDoesNotFallBackToLegacy() }),
@@ -97,6 +100,13 @@ struct TestMain {
             }
         }
         print("\(checks.count - failures)/\(checks.count) checks passed")
+        if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--render-rings=") }) {
+            do { try rings.writePreview(to: String(argument.dropFirst("--render-rings=".count))) }
+            catch {
+                failures += 1
+                print("FAIL ring preview: \(error.localizedDescription)")
+            }
+        }
         if failures != 0 { exit(1) }
     }
 }

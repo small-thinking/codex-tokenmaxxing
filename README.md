@@ -3,7 +3,8 @@
 A small native macOS menu bar app for your Codex **weekly quota**.
 
 - Outer ring: quota remaining, from 100% to 0%.
-- Inner ring: time remaining until the weekly reset, from full to empty.
+- Outer ring color: **green at 80–100%**, **mint/teal at 50–<80%**, **amber at 20–<50%**, and **red below 20%**. The empty track stays red at 0%.
+- Inner ring: time remaining until the weekly reset, from full to empty, in a separate neutral shade.
 - Percentage: the latest weekly quota reading.
 - Click for the reset countdown, exact local reset time, refresh, and quit.
 
@@ -45,6 +46,15 @@ For local development:
 
 Tests use local fake app-server executables and do not query an authenticated account. The fake servers require `/usr/bin/python3`, supplied by Command Line Tools. A small dependency-free check executable reports each failure and exits nonzero, so neither XCTest nor the Swift Testing runtime is required.
 
+The checks also render the actual AppKit rings offscreen and verify color boundaries, neutral time/unknown indicators, and dim neutral stale readings under light and dark appearances. To export a synthetic contact sheet with 1× and enlarged icons after running the tests:
+
+```sh
+"$(./scripts/swiftpm.sh build --show-bin-path)/QuotaChecks" --render-rings=.build/ring-preview.png
+open .build/ring-preview.png
+```
+
+The menu-bar button's own appearance controls the palette and triggers redraws when it changes. Percentage text uses native AppKit styling. Offscreen checks do not replace checking the installed status item over your actual wallpaper.
+
 The SwiftPM wrapper keeps caches inside `.build`. If an upgraded Command Line Tools installation contains mismatched old private/new public `PackageDescription` interfaces, it creates a project-local mirror using the matching public interface and library. It never edits the installed Apple toolchain.
 
 ## Continuous integration
@@ -67,7 +77,7 @@ quota remaining = clamp(100 - usedPercent, 0, 100)
 time remaining  = clamp((resetsAt - now) / (windowDurationMins × 60), 0, 1)
 ```
 
-Expired or missing reset metadata does not create a fabricated new quota window. Unknown data shows a question-mark ring and an em dash. Failed refreshes keep the last successful reading, dim the rings, and add a dot after the percentage; the popover explains the failure. Readings older than ten minutes are also marked stale.
+Expired or missing reset metadata does not create a fabricated new quota window. Unknown data shows a neutral question-mark ring and an em dash. Failed refreshes keep the last successful reading, switch the rings to dim neutral shades, and add a dot after the percentage; the popover explains the failure. Readings older than ten minutes are also marked stale.
 
 ### Refresh and resource use
 
@@ -103,6 +113,7 @@ The app-server protocol may change with Codex updates; unsupported quota shapes 
 ```text
 Sources/QuotaCore/          Quota parsing and time calculations
 Sources/CodexConnection/    Owned process, RPC transport, account checks
+Sources/QuotaMenuUI/        Appearance-aware quota and time ring drawing
 Sources/QuotaMenuApp/       AppKit status item and SwiftUI popover
 Tests/                     Quota contracts and fake-server transport tests
 Resources/Info.plist        Menu-bar-only app metadata
