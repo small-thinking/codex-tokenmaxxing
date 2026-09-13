@@ -148,9 +148,9 @@ The local app-server is an additional process, so the app is not zero-cost. Its 
 
 ### Privacy and storage
 
-Quota is fetched from OpenAI through the user's installed Codex. This app does not read `auth.json`, hold an access token, start a model turn, redeem reset credits, or send usage to a project-owned server. It disables analytics for its own child process and does not save raw RPC responses or raw account details.
+Quota is fetched from OpenAI through the user's installed Codex. This app does not read `auth.json`, hold an access token, start a model turn, redeem reset credits, or send usage to a project-owned server. The optional details section reports locally logged response token counters; token collection reads session JSONL incrementally and saves only counters, safe model labels and hashed deduplication/checkpoint identities. It disables analytics for its own child process and does not save raw RPC responses or raw account details.
 
-The current quota and reset-credit reading stays **in memory only**. Restarting starts with unknown current data until a successful account-checked read. The hourly history stores quota percentages, frozen pace samples, timestamps, reset-window metadata and an opaque account digest locally; history from another account is never shown as the current account’s activity.
+The current reset-credit cache stays **in memory only**. Quota snapshots are retained in the local history and audit ledger. Restarting still shows unknown current status until a successful account-checked read. The hourly history stores quota percentages, frozen pace samples, timestamps, reset-window metadata and an opaque account digest locally; history from another account is never shown as the current account’s activity.
 
 ### Codex executable discovery
 
@@ -184,3 +184,16 @@ The two-ring information design is inspired by [CodexMeter](https://github.com/r
 `python3 scripts/measure-idle.py --seconds 30` measures CPU-time deltas for the installed app and its direct child processes. One fully occupied CPU core is 100%. Compare with the popover closed and similar desktop activity; this is a short measurement, not a battery-life estimate.
 
 The status item resolves appearance on the existing 30-second timer. It deliberately avoids observing `effectiveAppearance`: AppKit may emit changes while rendering status-item snapshots, creating an image-update feedback loop. Model notifications are coalesced, and unchanged image state and text are not reassigned.
+
+
+### Local token evidence
+
+Expand **Local tokens** below the hourly quota chart for this hour's input, cached input and output, the recent 24 hourly bins, import coverage, and **Export hourly tokens + quota readings…**. Counts are local model throughput: `total = input + output`; cached input is already inside input and reasoning output is already inside output. Reused context can therefore contribute large token totals.
+
+The collector reads `~/.codex/sessions` and `~/.codex/archived_sessions`. It accepts per-response `token_usage_record.usage`, globally deduplicates hashed response IDs (including copied fork history), and resolves the model from turn metadata. Unknown/internal models remain separate in export; their billing contribution is not established. It does not add cumulative `token_count` notifications. Older files without response-level records are excluded and marked as incomplete coverage. Mixed old/new files may also lack older tokens: this is **modern-record coverage**, never a claim of complete historical/account usage. Missing local logs, remote devices and deleted logs cannot be recovered by this collector.
+
+The first import covers up to 90 days and may take time for multi-gigabyte histories. It reads at most 8 MiB per batch with a short parsing deadline, starts from newer files, and rests between batches (at least two seconds, longer after a slow batch, targeting a low duty cycle). Once caught up it checks known files every five minutes and discovers new files every fifteen minutes. Unchanged files are not re-read and unchanged checkpoints are not rewritten. Prompt/response text is not stored. The separate `token-usage.json` contains hourly model counters and hashed checkpoints/deduplication keys, with owner-only permissions.
+
+Fresh successful quota readings are additionally appended to small monthly JSONL files in `~/Library/Application Support/Codex Tokenmaxxing/quota-audit/`, retaining roughly four months; the original UI history remains eight days. This audit starts when this version is installed. It preserves reset timestamps and opaque account partitions so resets, account switches and observation gaps can be identified.
+
+CSV export has typed `tokens`, `quota` and `coverage` rows. Token rows are UTC hourly buckets; quota rows are timestamped readings, not hourly consumption. A quota decrease or changed reset time is a boundary, not negative consumption. Coverage metadata travels with the export. Model/cache mix and possible differences between local-log accounts and the polled account mean raw tokens per quota percentage point is an **observed comparison**, not a fixed conversion or proof that an allowance changed. There is no reliable last-month quota baseline before this audit began.

@@ -72,6 +72,7 @@ final class UsageModel: ObservableObject {
     @Published var isRefreshing = false
     @Published var errorMessage: String?
     let connection = CodexConnection()
+    let tokens: TokenUsageModel
     private var nextRefresh = Date.distantPast
     private var failures = 0
     private var refreshTask: Task<Void, Never>?
@@ -79,6 +80,7 @@ final class UsageModel: ObservableObject {
     private var needsHistoryPause = false
 
     init(recordsHistory: Bool = true) {
+        tokens = TokenUsageModel(enabled: recordsHistory)
         historyStoreTask = recordsHistory ? Task.detached(priority: .utility) { try QuotaHistoryStore() } : nil
     }
 
@@ -154,6 +156,7 @@ final class UsageModel: ObservableObject {
                     nextRefresh = min(nextRefresh, expiry)
                 }
                 await recordHistory(result)
+                await tokens.recordQuota(result)
             } catch {
                 guard !stopping else { return }
                 if let error = error as? ConnectionError, error == .signInRequired || error == .accountChanged {
@@ -208,6 +211,7 @@ final class UsageModel: ObservableObject {
 
     func stop() async {
         stopping = true
+        tokens.stop()
         refreshTask?.cancel()
         await connection.stop()
     }
@@ -285,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         network.start(queue: DispatchQueue(label: "com.small-thinking.codex-tokenmaxxing.network"))
         updateStatusItem()
+        model.tokens.start()
         model.refresh()
         if !UserDefaults.standard.bool(forKey: "hasShownWelcome") {
             UserDefaults.standard.set(true, forKey: "hasShownWelcome")
