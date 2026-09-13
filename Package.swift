@@ -7,10 +7,11 @@ let package = Package(
     products: [.executable(name: "CodexTokenmaxxing", targets: ["QuotaMenuApp"])],
     targets: [
         .target(name: "QuotaCore"),
+        .target(name: "LoginItemSupport"),
         .target(name: "CodexConnection", dependencies: ["QuotaCore"]),
         .target(name: "QuotaMenuUI", dependencies: ["QuotaCore"]),
-        .executableTarget(name: "QuotaMenuApp", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI"]),
-        .executableTarget(name: "QuotaChecks", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI"], path: "Tests")
+        .executableTarget(name: "QuotaMenuApp", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI", "LoginItemSupport"]),
+        .executableTarget(name: "QuotaChecks", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI", "LoginItemSupport"], path: "Tests")
     ],
     swiftLanguageModes: [.v5]
 )
