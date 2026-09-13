@@ -2,6 +2,7 @@ import SwiftUI
 import QuotaCore
 
 public struct ResetCreditsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     public let bank: ResetCreditBank?
     public let now: Date
     public let stale: Bool
@@ -72,7 +73,7 @@ public struct ResetCreditsView: View {
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.secondary.opacity(0.15))
-                            Capsule().fill(stale ? Color.gray : (fraction <= 0.2 ? .red : .teal))
+                            Capsule().fill(validityColor(fraction))
                                 .frame(width: geometry.size.width * fraction)
                         }
                     }.frame(height: 5)
@@ -86,6 +87,13 @@ public struct ResetCreditsView: View {
                 Text("Validity progress unavailable").font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }
+    }
+
+    // Move through amber between deep red (expired) and green (full validity).
+    private func validityColor(_ fraction: Double) -> Color {
+        guard !stale else { return .gray }
+        return Color(hue: min(1, max(0, fraction)) / 3,
+                     saturation: 0.82, brightness: colorScheme == .dark ? 0.85 : 0.65)
     }
 
     private func expiryText(_ credit: ResetCredit) -> String {

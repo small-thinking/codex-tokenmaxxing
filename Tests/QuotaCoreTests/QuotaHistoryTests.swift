@@ -123,7 +123,7 @@ struct QuotaHistoryTests {
         let loaded = try QuotaHistoryStore(directory: directory, at: hour.addingTimeInterval(later))
         try expect(loaded.loadWarning == nil)
         // Valid JSON with invalid schema or invalid samples must not be trusted.
-        try Data("{\"version\":3,\"samples\":[]}".utf8).write(to: file)
+        try Data("{\"version\":4,\"samples\":[]}".utf8).write(to: file)
         let unsupported = try QuotaHistoryStore(directory: directory, at: hour)
         try expect(unsupported.loadWarning != nil)
     }
