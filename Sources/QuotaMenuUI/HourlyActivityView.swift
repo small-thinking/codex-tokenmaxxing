@@ -69,17 +69,28 @@ public struct HourlyActivityView: View {
                             let visible = pacePoints.filter {
                                 $0.date.timeIntervalSince1970 >= start && $0.date.timeIntervalSince1970 <= start + duration
                             }
-                            Path { path in
-                                for (index, sample) in visible.enumerated() {
-                                    let point = CGPoint(x: width * (sample.date.timeIntervalSince1970 - start) / duration,
-                                                        y: height * (1 - sample.percentPerHour / ceiling))
-                                    if index == 0 || !sample.connectsToPrevious { path.move(to: point) }
-                                    else { path.addLine(to: point) }
+                            ForEach(Array(visible.indices.dropFirst()), id: \.self) { index in
+                                let sample = visible[index]
+                                let previous = visible[index - 1]
+                                let estimated = sample.estimatedConnection
+                                    || sample.isEstimated || previous.isEstimated
+                                if sample.connectsToPrevious {
+                                    Path { path in
+                                        path.move(to: CGPoint(
+                                            x: width * (previous.date.timeIntervalSince1970 - start) / duration,
+                                            y: height * (1 - previous.percentPerHour / ceiling)))
+                                        path.addLine(to: CGPoint(
+                                            x: width * (sample.date.timeIntervalSince1970 - start) / duration,
+                                            y: height * (1 - sample.percentPerHour / ceiling)))
+                                    }.stroke(Color.orange.opacity(estimated ? 0.65 : 1),
+                                             style: StrokeStyle(lineWidth: 1.5, dash: estimated ? [1, 3] : [3, 3]))
+                                        .allowsHitTesting(false)
                                 }
-                            }.stroke(Color.orange, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
-                                .allowsHitTesting(false)
+                            }
                             ForEach(visible, id: \.date) { sample in
-                                Circle().fill(Color.orange).frame(width: 4, height: 4)
+                                Circle().fill(sample.isEstimated ? Color.clear : Color.orange)
+                                    .overlay(Circle().stroke(Color.orange, lineWidth: 1))
+                                    .frame(width: 4, height: 4)
                                     .padding(3).contentShape(Rectangle())
                                     .position(x: width * (sample.date.timeIntervalSince1970 - start) / duration,
                                               y: height * (1 - sample.percentPerHour / ceiling))
@@ -97,6 +108,11 @@ public struct HourlyActivityView: View {
                     }.font(.system(size: 8)).foregroundStyle(.secondary)
                 }
             }
+            if pacePoints.contains(where: { $0.isEstimated || $0.estimatedConnection }) {
+                Text("Dotted pace · estimated while offline")
+                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                    .help("Quota and reset time matched before and after the gap. Dotted segments assume quota stayed unchanged between those readings; this is not observed activity.")
+            }
             if let message {
                 Text(message).font(.system(size: 9)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -106,13 +122,16 @@ public struct HourlyActivityView: View {
             } else {
                 Text("24h · dashed: pace / 30m · faded: partial · –: missing")
                     .font(.system(size: 9)).foregroundStyle(.secondary)
-                    .help("Pace points are saved once per half-hour and never recalculated. Lines break across offline periods, resets and app restarts. Bars show hourly quota consumption; the current hour is partial.")
+                    .help("Pace points are saved once per half-hour and never recalculated. Offline gaps can be estimated when the surrounding quota and reset time match; dotted segments and hollow dots identify estimates. Other gaps remain disconnected. Bars show hourly quota consumption; the current hour is partial.")
             }
         }
     }
 
     private func paceDetail(_ point: PacePoint) -> String {
         let date = point.date.formatted(.dateTime.month(.abbreviated).day().hour().minute().timeZone())
+        if point.isEstimated {
+            return "Estimated pace \(date): \(rate(point.percentPerHour))/h. Assumes unchanged quota between matching readings before and after an offline gap. This is not an observed sample."
+        }
         return "Pace recorded \(date): \(rate(point.percentPerHour))/h. Quota remaining divided by hours until reset at that moment. Historical samples are unchanged."
     }
 

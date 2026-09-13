@@ -76,6 +76,7 @@ final class UsageModel: ObservableObject {
     private var failures = 0
     private var refreshTask: Task<Void, Never>?
     private var stopping = false
+    private var needsHistoryPause = false
 
     init(recordsHistory: Bool = true) {
         historyStoreTask = recordsHistory ? Task.detached(priority: .utility) { try QuotaHistoryStore() } : nil
@@ -113,6 +114,19 @@ final class UsageModel: ObservableObject {
     func opened() {
         now = Date()
         if snapshot == nil || now.timeIntervalSince(snapshot!.fetchedAt) >= 60 { refresh() }
+    }
+
+    func prepareForSleep() {
+        needsHistoryPause = true
+    }
+
+    func woke() async {
+        // Finish any pre-sleep request before forcing a fresh post-wake reading.
+        needsHistoryPause = true
+        await refreshTask?.value
+        needsHistoryPause = true
+        now = Date()
+        refresh()
     }
 
     func refresh() {
@@ -168,6 +182,10 @@ final class UsageModel: ObservableObject {
         }
         do {
             guard let store = try await historyStoreTask?.value else { return }
+            if needsHistoryPause {
+                needsHistoryPause = false
+                await store.pauseForSleep()
+            }
             historyMessage = store.loadWarning
             do { try await store.record(usage) }
             catch { historyMessage = "History could not be saved; recent activity is in memory." }
@@ -205,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appearanceObservation: NSKeyValueObservation?
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var sleepObserver: NSObjectProtocol?
     private let network = NWPathMonitor()
     private var wasOffline = false
 
@@ -240,9 +259,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         timer?.tolerance = 5
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in Task { @MainActor in self?.model.prepareForSleep() } }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.model.refresh() } }
+        ) { [weak self] _ in Task { @MainActor in await self?.model.woke() } }
         network.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 guard let self else { return }
@@ -294,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer?.invalidate()
         network.cancel()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        if let sleepObserver { NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver) }
         Task {
             await model.stop()
             // Give the owned child's termination fallback time to finish before our process exits.

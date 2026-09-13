@@ -86,7 +86,7 @@ struct PaceHistoryTests {
         }
     }
 
-    func legacyHistoryDoesNotInventPaceAndWakeDoesNotBackfill() async throws {
+    func legacyHistoryAndRecoveredPaceRetention() async throws {
         let directory = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try QuotaHistoryStore(directory: directory, at: start)
@@ -108,14 +108,133 @@ struct PaceHistoryTests {
         try await legacy.record(usage(600, 12))
         try await legacy.record(usage(10_800, 12))
         let points = await legacy.pacePoints(accountKey: keyA, at: start.addingTimeInterval(10_800))
-        try expect(points.count == 2 && !points[1].connectsToPrevious,
-                   "Wake must add only its actual reading, never fill sleeping half-hours")
+        try expect(points.count == 7 && points.dropFirst().allSatisfy(\.connectsToPrevious),
+                   "Matching wake endpoints recover missing half-hours after the first recorded pace")
+        try expect(points.filter(\.isEstimated).count == 5)
+        try expect(points.first?.date == start.addingTimeInterval(600),
+                   "Legacy rows without recorded pace must not gain invented targets")
         let nowVisible = await legacy.pacePoints(accountKey: keyA, at: start.addingTimeInterval(10_800), count: 1)
         try expect(nowVisible.count == 1 && !nowVisible[0].connectsToPrevious)
         let later = 9.0 * 86_400
         try await legacy.record(usage(later, 1, resetOffset: later + 604_800))
         let retained = await legacy.pacePoints(accountKey: keyA, at: start.addingTimeInterval(later), count: 192)
         try expect(retained.count == 1, "Pace and quota history share the eight-day retention bound")
+    }
+
+    func matchingWakeRecoversEstimatesWithoutInventingUsage() async throws {
+        for mode in ["wake", "restart", "gap"] {
+            let directory = try fixture()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            var store = try QuotaHistoryStore(directory: directory, at: start)
+            try await store.record(usage(30))
+            try await store.record(usage(300))
+            let before = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(300))
+            if mode == "wake" { await store.pauseForSleep() }
+            if mode == "restart" {
+                store = try QuotaHistoryStore(directory: directory, at: start.addingTimeInterval(7_230))
+            }
+            try await store.record(usage(7_230))
+            let points = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(7_230))
+            try expect(points.count == 5 && points[0] == before[0])
+            try expect(points.map(\.isEstimated) == [false, true, true, true, false])
+            try expect(points.dropFirst().allSatisfy { $0.connectsToPrevious && $0.estimatedConnection })
+            for point in points where point.isEstimated {
+                try expect(point.percentPerHour == 90 / (start.addingTimeInterval(604_800).timeIntervalSince(point.date) / 3_600))
+            }
+            try expect(zip(points, points.dropFirst()).allSatisfy { $1.percentPerHour > $0.percentPerHour })
+            let bins = await store.bins(accountKey: keyA, at: start.addingTimeInterval(7_230), count: 3)
+            try expect(bins[0].observedSeconds == 270 && bins[0].consumedPercent == 0)
+            try expect(bins[1].consumedPercent == nil && bins[2].consumedPercent == nil,
+                       "Recovered pace must not turn unobserved hourly activity into zeros")
+            let archive = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("quota-history.json"))) as! [String: Any]
+            try expect(archive["version"] as? Int == 3 && (archive["samples"] as? [Any])?.count == 3,
+                       "Only real observations belong in quota history")
+            let reloaded = try QuotaHistoryStore(directory: directory, at: start.addingTimeInterval(7_500))
+            let restored = await reloaded.pacePoints(accountKey: keyA, at: start.addingTimeInterval(7_500))
+            try expect(restored == points && reloaded.loadWarning == nil)
+            let historical = await reloaded.pacePoints(accountKey: keyA, at: start.addingTimeInterval(7_200))
+            try expect(historical == before, "Recovery is unavailable until its later observation exists")
+            try await store.record(usage(7_500, 12))
+            let unchanged = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(7_500))
+            try expect(unchanged == points, "Later consumption must never rewrite inferred or observed targets")
+        }
+    }
+
+    func recoveryRejectsAmbiguousEndpointsAndHonorsSessionBreaks() async throws {
+        for disruption in ["used", "reset", "account", "explicit", "legacy", "clock"] {
+            let directory = try fixture()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            var store = try QuotaHistoryStore(directory: directory, at: start)
+            try await store.record(usage(0))
+            if disruption == "explicit" { await store.breakContinuity() }
+            if disruption == "clock" { try await store.record(usage(-1)) }
+            if disruption == "account" { try await store.record(usage(300, key: keyB)) }
+            if disruption == "legacy" {
+                let file = directory.appendingPathComponent("quota-history.json")
+                var archive = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+                archive["version"] = 1
+                archive["samples"] = (archive["samples"] as! [[String: Any]]).map { row in
+                    var row = row; row.removeValue(forKey: "pacePercentPerHour"); return row
+                }
+                try JSONSerialization.data(withJSONObject: archive).write(to: file)
+                store = try QuotaHistoryStore(directory: directory, at: start.addingTimeInterval(3_600))
+            }
+            try await store.record(usage(3_600, disruption == "used" ? 11 : 10,
+                                         resetOffset: disruption == "reset" ? 700_000 : 604_800))
+            let points = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(3_600))
+            try expect(points.count == (disruption == "legacy" ? 1 : 2))
+            try expect(points.allSatisfy { !$0.isEstimated && !$0.connectsToPrevious },
+                       "No inference across \(disruption)")
+        }
+    }
+
+    func recoveryPreservesVersionTwoAndHandlesShortSleep() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var store = try QuotaHistoryStore(directory: directory, at: start)
+        try await store.record(usage(0))
+        try await store.record(usage(300))
+        let file = directory.appendingPathComponent("quota-history.json")
+        var archive = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let originalRows = archive["samples"] as! NSArray
+        archive["version"] = 2
+        archive.removeValue(forKey: "recoverySpans")
+        try JSONSerialization.data(withJSONObject: archive).write(to: file)
+        store = try QuotaHistoryStore(directory: directory, at: start.addingTimeInterval(600))
+        try await store.record(usage(600)) // Restart within same slot: inferred segment, no extra point.
+        for time in stride(from: 900.0, through: 1_800, by: 300) { try await store.record(usage(time)) }
+        var points = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(1_800))
+        try expect(points.count == 2 && points[1].connectsToPrevious && points[1].estimatedConnection)
+        try expect(points.allSatisfy { !$0.isEstimated })
+        await store.pauseForSleep()
+        try await store.record(usage(2_100))
+        for time in stride(from: 2_400.0, through: 3_600, by: 300) { try await store.record(usage(time)) }
+        points = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(3_600))
+        try expect(points.count == 3 && points[2].estimatedConnection,
+                   "Even a short sleep must not masquerade as observed continuity")
+        let bins = await store.bins(accountKey: keyA, at: start.addingTimeInterval(3_600), count: 2)
+        try expect(bins[0].observedSeconds == 3_000, "Restart and short sleep each leave 300 seconds unobserved")
+        archive = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let retained = Array((archive["samples"] as! [Any]).prefix(2)) as NSArray
+        try expect(retained == originalRows && archive["version"] as? Int == 3)
+    }
+
+    func recoveryNeverExtendsPastRetention() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try QuotaHistoryStore(directory: directory, at: start)
+        let later = 9.0 * 86_400
+        // Keep the same quota and reset to isolate the retention rule from reset detection.
+        try await store.record(usage(0, resetOffset: 14 * 86_400))
+        try await store.record(usage(later, resetOffset: 14 * 86_400))
+        let points = await store.pacePoints(accountKey: keyA, at: start.addingTimeInterval(later), count: 192)
+        try expect(points.count == 1 && !points[0].isEstimated && !points[0].connectsToPrevious)
+        let file = directory.appendingPathComponent("quota-history.json")
+        let archive = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        try expect((archive["recoverySpans"] as? [Any])?.isEmpty == true)
+        let reloaded = try QuotaHistoryStore(directory: directory, at: start.addingTimeInterval(later))
+        let restored = await reloaded.pacePoints(accountKey: keyA, at: start.addingTimeInterval(later), count: 192)
+        try expect(restored == points && reloaded.loadWarning == nil)
     }
 
     func writeFailureKeepsImmutablePaceInMemory() async throws {

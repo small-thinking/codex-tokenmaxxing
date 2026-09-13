@@ -72,7 +72,11 @@ struct TestMain {
         let checks: [(String, () async throws -> Void)] = [
             ("pace history immutable half-hour samples and reload", { try await paceHistory.immutableHalfHourlySamplesAndPersistence() }),
             ("pace history intermediate continuity breaks", { try await paceHistory.continuityIncludesInterveningReadings() }),
-            ("pace legacy migration wake and retention", { try await paceHistory.legacyHistoryDoesNotInventPaceAndWakeDoesNotBackfill() }),
+            ("pace recovery estimate formula persistence and usage isolation", { try await paceHistory.matchingWakeRecoversEstimatesWithoutInventingUsage() }),
+            ("pace recovery rejects ambiguous endpoints", { try await paceHistory.recoveryRejectsAmbiguousEndpointsAndHonorsSessionBreaks() }),
+            ("pace recovery version two migration and short sleep", { try await paceHistory.recoveryPreservesVersionTwoAndHandlesShortSleep() }),
+            ("pace legacy migration wake and retention", { try await paceHistory.legacyHistoryAndRecoveredPaceRetention() }),
+            ("pace recovery never extends past retention", { try await paceHistory.recoveryNeverExtendsPastRetention() }),
             ("pace write failure retains immutable memory", { try await paceHistory.writeFailureKeepsImmutablePaceInMemory() }),
             ("hourly allocation", { try await history.hourlyBoundaryAllocation() }),
             ("dynamic required pace and validity boundaries", { try core.testRequiredPacePerHour() }),
