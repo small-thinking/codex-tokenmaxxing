@@ -49,6 +49,8 @@ struct OverviewView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Divider()
+                HourlyActivityView(bins: model.historyBins, message: model.historyMessage)
+                Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
                 Divider()
                 HStack(spacing: 10) {
@@ -66,7 +68,7 @@ struct OverviewView: View {
             }
             .padding(18)
             .frame(width: 340)
-        }.frame(width: 340, height: 455)
+        }.frame(width: 340, height: 615)
     }
 
     private func legend(_ label: String, value: String, color: NSColor?) -> some View {

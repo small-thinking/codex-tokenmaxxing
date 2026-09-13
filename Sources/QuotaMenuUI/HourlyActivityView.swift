@@ -49,7 +49,7 @@ public struct HourlyActivityView: View {
                                             .fill(Color.teal.opacity(isPartial(bin) ? 0.45 : 1))
                                             .frame(height: max(2, height * value / ceiling))
                                     } else {
-                                        Text("–").font(.system(size: 9)).foregroundStyle(.tertiary)
+                                        Text("–").font(.system(size: 9)).foregroundStyle(.secondary)
                                             .frame(height: 5)
                                     }
                                 }
@@ -87,7 +87,11 @@ public struct HourlyActivityView: View {
         bin.coverageFraction < 0.95 || bin.expectedSeconds < 3_600
     }
 
-    private func hour(_ date: Date) -> String { date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted))) }
+    private func hour(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
 
     private func detail(_ bin: HourlyQuotaBin) -> String {
         let date = bin.start.formatted(.dateTime.month(.abbreviated).day().hour().minute().timeZone())
