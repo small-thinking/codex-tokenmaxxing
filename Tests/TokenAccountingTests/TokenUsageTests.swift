@@ -18,8 +18,10 @@ struct TokenUsageTests {
         return Data("{\"timestamp\":\"\(format.string(from: date ?? now))\",\"type\":\"\(type)\",\"payload\":\(payloadText)}\n".utf8)
     }
 
-    private func context(model: String = "gpt-6-astra", turn: String = "turn-private") throws -> Data {
-        try line("turn_context", ["model": model, "turn_id": turn, "prompt": "PRIVATE CONTENT NEVER CHECKPOINTED"])
+    private func context(model: String = "gpt-6-astra", turn: String = "turn-private", effort: String? = nil) throws -> Data {
+        var payload: [String: Any] = ["model": model, "turn_id": turn, "prompt": "PRIVATE CONTENT NEVER CHECKPOINTED"]
+        if let effort { payload["effort"] = effort }
+        return try line("turn_context", payload)
     }
 
     private func record(_ id: String = "response-private", turn: String? = "turn-private", date: Date? = nil,
@@ -40,6 +42,7 @@ struct TokenUsageTests {
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
         try handle.seekToEnd(); try handle.write(contentsOf: data)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
     }
 
     func modernCountersDeduplicateAndPreserveBreakdown() async throws {
@@ -58,7 +61,7 @@ struct TokenUsageTests {
         try expect(report.latestScan.newRecords == 1 && report.latestScan.duplicates == 2)
         try expect(report.legacyFiles == 0 && !report.catchingUp)
         let csv = await store.exportCSV(at: now)
-        try expect(csv.contains("gpt-6-astra,100,80,5,20,8,120,1"))
+        try expect(csv.contains("gpt-6-astra,unknown,100,80,5,20,8,120,1"))
         let checkpoint = try String(contentsOf: directory.appendingPathComponent("token-usage.json"), encoding: .utf8)
         for secret in ["response-private", "turn-private", "PRIVATE CONTENT", logs.path] {
             try expect(!checkpoint.contains(secret), "Checkpoint must never retain identifiers or content")
@@ -218,4 +221,106 @@ struct TokenUsageTests {
         try expect(!result.catchingUp && result.bins.first?.counts.total == 120)
         try expect(result.warning == nil, "Large irrelevant content is not missing token coverage")
     }
+    func reasoningLevelsFollowTurnsAndRemainDistinct() async throws {
+        let (directory, logs) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = try context(turn: "first", effort: "high") + context(turn: "second", effort: "low") +
+            record("high", turn: "first") + record("low", turn: "second") + record("latest", turn: nil) +
+            record("missing", turn: "unseen") + context(turn: "third") + record("no-effort", turn: "third") +
+            context(turn: "unsafe", effort: "=PRIVATE") + record("bad-effort", turn: "unsafe")
+        try write(data, to: logs.appendingPathComponent("levels.jsonl"))
+        let store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let report = try await store.scan(at: now)
+        try expect(report.bins.first { $0.reasoningLevel == "high" }?.counts.total == 120)
+        try expect(report.bins.first { $0.reasoningLevel == "low" }?.counts.total == 240)
+        try expect(report.bins.filter { $0.reasoningLevel == "unknown" }.reduce(0) { $0 + $1.counts.total } == 360)
+        try expect(report.bins.first { $0.model == "unknown" }?.reasoningLevel == "unknown")
+        let csv = await store.exportCSV(at: now)
+        try expect(csv.hasPrefix("hour_utc,model,reasoning_level,") && csv.contains("gpt-6-astra,high,100,80"))
+        let text = try String(contentsOf: directory.appendingPathComponent("token-usage.json"), encoding: .utf8)
+        try expect(!text.contains("=PRIVATE") && !text.contains("PRIVATE CONTENT"))
+        let restarted = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let restored = try await restarted.scan(at: now)
+        try expect(restored.bins == report.bins && restored.latestScan.bytesRead == 0)
+    }
+
+    private func downgradeCheckpoint(at directory: URL) throws {
+        let path = directory.appendingPathComponent("token-usage.json")
+        var archive = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
+        archive["version"] = 1
+        archive.removeValue(forKey: "enrichment")
+        var buckets: [String: [String: Any]] = [:]
+        for var bin in archive["bins"] as! [[String: Any]] {
+            bin.removeValue(forKey: "reasoningLevel")
+            let key = "\(bin["hour"]!)-\(bin["model"]!)"
+            if var existing = buckets[key] {
+                var counts = existing["counts"] as! [String: Int64]
+                for (name, count) in bin["counts"] as! [String: Int64] { counts[name, default: 0] += count }
+                existing["counts"] = counts
+                existing["responses"] = (existing["responses"] as! Int) + (bin["responses"] as! Int)
+                buckets[key] = existing
+            } else { buckets[key] = bin }
+        }
+        archive["bins"] = Array(buckets.values)
+        try JSONSerialization.data(withJSONObject: archive).write(to: path)
+    }
+
+    func legacyReasoningMigrationPreservesTotalsAcrossRestart() async throws {
+        let (directory, logs) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stamp = ISO8601DateFormatter().string(from: now)
+        let fractional = String(stamp.dropLast()) + ".123456Z"
+        let first = Data(String(decoding: try context(effort: "high") + record("first"), as: UTF8.self)
+            .replacingOccurrences(of: stamp, with: fractional).utf8)
+        let second = try context(effort: "low") + record("second")
+        let file = logs.appendingPathComponent("existing.jsonl")
+        try write(first + second, to: file)
+        var store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        _ = try await store.scan(at: now)
+        try downgradeCheckpoint(at: directory)
+        store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let partial = try await store.scan(at: now, byteBudget: first.count)
+        try expect(partial.bins.count == 1 && partial.bins[0].reasoningLevel == "unknown")
+        try expect(partial.bins[0].counts.total == 240 && partial.catchingUp)
+        store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        // A new response arriving during replay must be counted once, independently of old totals.
+        try append(try context(effort: "medium") + record("new"), to: file)
+        let complete = try await store.scan(at: now)
+        try expect(complete.bins.reduce(0) { $0 + $1.counts.total } == 360)
+        try expect(Set(complete.bins.map(\.reasoningLevel)) == Set(["high", "low", "medium"]))
+        try expect(complete.latestScan.newRecords == 1)
+        // A fork replays the same responses, but must not enrich or count them twice.
+        try write(first + second, to: logs.appendingPathComponent("fork.jsonl"))
+        let forked = try await store.scan(at: now.addingTimeInterval(901))
+        try expect(forked.bins == complete.bins && forked.latestScan.newRecords == 0)
+        let afterRestart = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let persisted = await afterRestart.report(at: now)
+        try expect(persisted.bins == complete.bins)
+    }
+
+    func legacyReasoningMigrationKeepsMissingAndChangedSourcesUnknown() async throws {
+        let (directory, logs) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let missing = logs.appendingPathComponent("missing.jsonl")
+        let changed = logs.appendingPathComponent("changed.jsonl")
+        try write(try context(model: "gpt-6-astra", effort: "high") + record("missing"), to: missing)
+        try write(try context(model: "gpt-5.6-sol", effort: "low") + record("changed"), to: changed)
+        var store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        _ = try await store.scan(at: now)
+        try downgradeCheckpoint(at: directory)
+        try FileManager.default.removeItem(at: missing)
+        // An existing ID with altered valid counters cannot reclassify a baseline bucket.
+        var altered = String(decoding: try record("changed"), as: UTF8.self)
+        altered = altered.replacingOccurrences(of: "\"cached_input_tokens\":80", with: "\"cached_input_tokens\":70")
+        try write(try context(model: "gpt-5.6-sol", effort: "low") + Data(altered.utf8), to: changed)
+        store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let result = try await store.scan(at: now)
+        try expect(result.bins.count == 2 && result.bins.allSatisfy { $0.reasoningLevel == "unknown" })
+        try expect(result.bins.reduce(0) { $0 + $1.counts.total } == 240)
+        try expect(result.bins.reduce(0) { $0 + $1.counts.cachedInput } == 160)
+        let restarted = try TokenUsageStore(directory: directory, roots: [logs], at: now)
+        let unchanged = try await restarted.scan(at: now)
+        try expect(unchanged.bins == result.bins)
+    }
+
 }
