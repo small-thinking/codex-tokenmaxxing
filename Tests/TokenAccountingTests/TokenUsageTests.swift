@@ -224,10 +224,17 @@ struct TokenUsageTests {
     func reasoningLevelsFollowTurnsAndRemainDistinct() async throws {
         let (directory, logs) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let data = try context(turn: "first", effort: "high") + context(turn: "second", effort: "low") +
-            record("high", turn: "first") + record("low", turn: "second") + record("latest", turn: nil) +
-            record("missing", turn: "unseen") + context(turn: "third") + record("no-effort", turn: "third") +
-            context(turn: "unsafe", effort: "=PRIVATE") + record("bad-effort", turn: "unsafe")
+        var data = Data()
+        data.append(try context(turn: "first", effort: "high"))
+        data.append(try context(turn: "second", effort: "low"))
+        data.append(try record("high", turn: "first"))
+        data.append(try record("low", turn: "second"))
+        data.append(try record("latest", turn: nil))
+        data.append(try record("missing", turn: "unseen"))
+        data.append(try context(turn: "third"))
+        data.append(try record("no-effort", turn: "third"))
+        data.append(try context(turn: "unsafe", effort: "=PRIVATE"))
+        data.append(try record("bad-effort", turn: "unsafe"))
         try write(data, to: logs.appendingPathComponent("levels.jsonl"))
         let store = try TokenUsageStore(directory: directory, roots: [logs], at: now)
         let report = try await store.scan(at: now)
