@@ -6,7 +6,7 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - Outer ring color: **green at 80–100%**, **mint/teal at 50–<80%**, **amber at 20–<50%**, and **red below 20%**. The empty track stays red at 0%.
 - Inner ring: time remaining until the weekly reset, from full to empty. Its colors run in reverse: **red above 80% time remaining**, **amber at >50–80%**, **mint/teal at >20–50%**, and **green at 20% or less**. Green means the reset is near, not that quota is abundant.
 - Reset opportunities: server-reported available count, expiry dates, and each card’s remaining validity progress.
-- Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
+- The inner-ring row combines its reset countdown and compact local reset date (for example `09/19 1 AM`); hover for the exact date and minute. The weekly under/over pace gap sits with the hourly chart.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. The compact label writes this as `Under pace · 20%`; its tooltip explains that it is an absolute percentage-point gap, not a relative percentage change. This does not measure recent activity. Stale readings hide pace.
 
 This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with recorded pace history. Launch at login is available in the popover.

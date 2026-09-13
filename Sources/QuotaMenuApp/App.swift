@@ -228,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 615)
+        popover.contentSize = NSSize(width: 340, height: 590)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model, loginItem: loginItem))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }
