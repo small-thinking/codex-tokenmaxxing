@@ -34,6 +34,18 @@ public struct WeeklySnapshot: Codable, Equatable, Sendable {
         return remainingPercent - time * 100
     }
 
+    /// Required consumption from now to reset, in percentage points of the weekly allowance per hour.
+    /// Missing/expired metadata and stale or future-dated readings do not establish a current target.
+    public func requiredPacePerHour(at date: Date) -> Double? {
+        guard usedPercent.isFinite, windowDurationMins > 0,
+              date.timeIntervalSince1970.isFinite, fetchedAt.timeIntervalSince1970.isFinite,
+              date >= fetchedAt, !isStale(at: date), let resetsAt else { return nil }
+        let hours = resetsAt.timeIntervalSince(date) / 3_600
+        guard hours.isFinite, hours > 0 else { return nil }
+        let pace = remainingPercent / hours
+        return pace.isFinite ? pace : nil
+    }
+
     public func isStale(at date: Date, maxAge: TimeInterval = 600) -> Bool {
         if let resetsAt, resetsAt <= date { return true }
         return date.timeIntervalSince(fetchedAt) > maxAge

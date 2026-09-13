@@ -49,7 +49,9 @@ struct OverviewView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Divider()
-                HourlyActivityView(bins: model.historyBins, message: model.historyMessage)
+                HourlyActivityView(bins: model.historyBins,
+                                   targetPace: model.isStale ? nil : model.snapshot?.requiredPacePerHour(at: model.now),
+                                   message: model.historyMessage)
                 Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
                 Divider()

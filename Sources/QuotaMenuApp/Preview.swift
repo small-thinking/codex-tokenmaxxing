@@ -12,6 +12,13 @@ func renderPreview(to path: String) {
     model.now = now
     model.snapshot = WeeklySnapshot(usedPercent: 40, resetsAt: now.addingTimeInterval(241_920),
                                    windowDurationMins: 10_080, fetchedAt: now)
+    if CommandLine.arguments.contains("--preview-near-reset") {
+        model.snapshot = WeeklySnapshot(usedPercent: 40, resetsAt: now.addingTimeInterval(1),
+                                       windowDurationMins: 10080, fetchedAt: now)
+    }
+    if CommandLine.arguments.contains("--preview-stale") {
+        model.errorMessage = "Quota refresh unavailable."
+    }
     model.resetCredits = ResetCreditBank(availableCount: 3, credits: [
         ResetCredit(id: "preview1", grantedAt: now.addingTimeInterval(-864_000), expiresAt: now.addingTimeInterval(86_400)),
         ResetCredit(id: "preview2", grantedAt: now.addingTimeInterval(-432_000), expiresAt: now.addingTimeInterval(432_000)),

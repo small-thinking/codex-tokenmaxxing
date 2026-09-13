@@ -68,7 +68,8 @@ struct TestMain {
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
-            ("hourly allocation and fixed pace baseline", { try await history.hourlyBoundaryAllocationAndFixedBaseline() }),
+            ("hourly allocation", { try await history.hourlyBoundaryAllocation() }),
+            ("dynamic required pace and validity boundaries", { try core.testRequiredPacePerHour() }),
             ("history gaps resets and corrections", { try await history.gapsResetsAndCorrectionsRemainUnknown() }),
             ("history account scoping and restart continuity", { try await history.accountScopingAndRestartContinuity() }),
             ("history persistence validation and retention", { try await history.persistenceValidationDeduplicationAndRetention() }),

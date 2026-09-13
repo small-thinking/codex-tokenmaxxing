@@ -131,4 +131,26 @@ struct QuotaSnapshotTests {
         let encoded = try JSONEncoder().encode(snapshot)
         try expect(try JSONDecoder().decode(WeeklySnapshot.self, from: encoded) == snapshot)
     }
+    func testRequiredPacePerHour() throws {
+        func reading(remaining: Double, hours: Double, fetched: Date? = nil) -> WeeklySnapshot {
+            WeeklySnapshot(usedPercent: 100 - remaining, resetsAt: now.addingTimeInterval(hours * 3600),
+                           windowDurationMins: 10080, fetchedAt: fetched ?? now)
+        }
+        let initial = reading(remaining: 60, hours: 120)
+        try expect(initial.requiredPacePerHour(at: now) == 0.5)
+        try expect(initial.requiredPacePerHour(at: now.addingTimeInterval(300))! > 0.5,
+                   "Unspent quota requires a faster pace as reset approaches")
+        try expect(reading(remaining: 30, hours: 120).requiredPacePerHour(at: now) == 0.25)
+        try expect(reading(remaining: 60, hours: 60).requiredPacePerHour(at: now) == 1)
+        try expect(reading(remaining: 0, hours: 60).requiredPacePerHour(at: now) == 0)
+        try expect(reading(remaining: 60, hours: 0).requiredPacePerHour(at: now) == nil)
+        try expect(reading(remaining: 60, hours: -1).requiredPacePerHour(at: now) == nil)
+        try expect(initial.requiredPacePerHour(at: now.addingTimeInterval(601)) == nil)
+        try expect(initial.requiredPacePerHour(at: now.addingTimeInterval(-1)) == nil)
+        try expect(reading(remaining: 60, hours: 1.0 / 3600).requiredPacePerHour(at: now) == 216000)
+        let missing = WeeklySnapshot(usedPercent: 40, resetsAt: nil, windowDurationMins: 10080, fetchedAt: now)
+        try expect(missing.requiredPacePerHour(at: now) == nil)
+        try expect(reading(remaining: .nan, hours: 60).requiredPacePerHour(at: now) == nil)
+    }
+
 }
