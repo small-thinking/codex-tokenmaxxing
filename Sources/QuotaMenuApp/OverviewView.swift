@@ -28,24 +28,23 @@ struct OverviewView: View {
                     VStack(alignment: .leading, spacing: 7) {
                         legend("Outer · quota", value: model.percentText,
                                color: model.snapshot.map { RingIcon.quotaColor(remaining: $0.remainingPercent, appearance: appearance) })
-                        legend("Inner · time", value: model.timePercentText,
-                               color: model.snapshot?.remainingTimeFraction(at: model.now).map {
-                                   RingIcon.timeColor(remainingFraction: $0, appearance: appearance)
-                               })
+                        HStack(spacing: 4) {
+                            ringMark(color: model.snapshot?.remainingTimeFraction(at: model.now).map {
+                                RingIcon.timeColor(remainingFraction: $0, appearance: appearance)
+                            })
+                            Text("Inner · " + model.countdown.replacingOccurrences(of: "Resets", with: "reset"))
+                                .lineLimit(1).minimumScaleFactor(0.85)
+                            Spacer(minLength: 2)
+                            if let reset = model.snapshot?.resetsAt {
+                                Text(compactResetDate(reset)).monospacedDigit().foregroundStyle(.secondary)
+                                    .fixedSize()
+                            }
+                        }.font(.system(size: 9))
+                            .help(model.snapshot?.resetsAt.map {
+                                "Weekly reset: " + $0.formatted(date: .complete, time: .shortened)
+                            } ?? "Weekly reset time unavailable")
                     }.help("Outer: weekly quota remaining. Inner: weekly time remaining until reset. Compare filled proportions, not physical arc lengths.")
                 }
-                HStack(spacing: 5) {
-                    Label(model.countdown, systemImage: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                    Spacer(minLength: 2)
-                    if let reset = model.snapshot?.resetsAt {
-                        Text(reset.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
-                            .help(reset.formatted(date: .complete, time: .shortened))
-                    }
-                }
-                Text(model.paceText).font(.system(size: 11, weight: .medium))
-                    .help("The gap is quota remaining minus weekly time remaining, measured in percentage points of the full allowance. 88% − 79% = 9%. This compares with uniform weekly usage, not recent activity.")
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.circle")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -53,6 +52,7 @@ struct OverviewView: View {
                 Divider()
                 HourlyActivityView(bins: model.historyBins,
                                    pacePoints: model.pacePoints,
+                                   paceSummary: model.paceText,
                                    message: model.historyMessage)
                 Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
@@ -73,16 +73,29 @@ struct OverviewView: View {
             }
             .padding(18)
             .frame(width: 340)
-        }.frame(width: 340, height: 615)
+        }.frame(width: 340, height: 590)
     }
 
     private func legend(_ label: String, value: String, color: NSColor?) -> some View {
         HStack(spacing: 6) {
-            Circle().stroke(Color(nsColor: model.isStale ? .secondaryLabelColor : (color ?? .secondaryLabelColor)), lineWidth: 2)
-                .frame(width: 8, height: 8)
+            ringMark(color: color)
             Text(label)
             Spacer(minLength: 4)
             Text(value).monospacedDigit()
         }.font(.system(size: 10))
     }
+
+    private func ringMark(color: NSColor?) -> some View {
+        Circle().stroke(Color(nsColor: model.isStale ? .secondaryLabelColor : (color ?? .secondaryLabelColor)), lineWidth: 2)
+            .frame(width: 8, height: 8)
+    }
+
+    private func compactResetDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "MM/dd h a"
+        return formatter.string(from: date)
+    }
+
 }

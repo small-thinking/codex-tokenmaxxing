@@ -5,10 +5,12 @@ import QuotaCore
 public struct HourlyActivityView: View {
     public let bins: [HourlyQuotaBin]
     public let message: String?
+    public let paceSummary: String
     public let pacePoints: [PacePoint]
 
-    public init(bins: [HourlyQuotaBin], pacePoints: [PacePoint], message: String? = nil) {
+    public init(bins: [HourlyQuotaBin], pacePoints: [PacePoint], paceSummary: String, message: String? = nil) {
         self.bins = bins
+        self.paceSummary = paceSummary
         self.pacePoints = pacePoints.filter {
             $0.date.timeIntervalSince1970.isFinite && $0.percentPerHour.isFinite && $0.percentPerHour >= 0
         }
@@ -29,6 +31,8 @@ public struct HourlyActivityView: View {
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                     .help(pacePoints.last.map { paceDetail($0) } ?? "Pace is recorded from a fresh quota reading once per half-hour. Previous points stay unchanged.")
             }
+            Text(paceSummary).font(.system(size: 10, weight: .medium))
+                .help("The gap is quota remaining minus weekly time remaining, in percentage points of the full allowance. 88% − 79% = 9%. This compares with uniform weekly usage; the dashed curve shows recorded required pace.")
             HStack(alignment: .top, spacing: 5) {
                 VStack {
                     Text(rate(ceiling, decimals: 1)).lineLimit(1).minimumScaleFactor(0.7)
