@@ -220,7 +220,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var observation: AnyCancellable?
-    private var appearanceObservation: NSKeyValueObservation?
+    private var statusUpdatePending = false
+    private var lastIconState: IconState?
+
+    private struct IconState: Equatable {
+        let snapshot: WeeklySnapshot?
+        let date: Date
+        let stale: Bool
+        let dark: Bool
+    }
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var sleepObserver: NSObjectProtocol?
@@ -240,17 +248,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePopover)
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-            // The menu bar can have a different appearance from the app (for example,
-            // over a dark wallpaper). Redraw when that button's appearance changes.
-            appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
-                DispatchQueue.main.async { self?.updateStatusItem() }
-            }
+            // effectiveAppearance KVO can fire during AppKit's own status-item
+            // snapshot rendering. Mutating the image from that callback loops forever.
+            // Resolve appearance on the existing 30-second tick instead.
         }
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 340, height: 590)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model, loginItem: loginItem))
         observation = model.objectWillChange.sink { [weak self] in
-            DispatchQueue.main.async { self?.updateStatusItem() }
+            guard let self, !self.statusUpdatePending else { return }
+            self.statusUpdatePending = true
+            DispatchQueue.main.async { [weak self] in
+                self?.statusUpdatePending = false
+                self?.updateStatusItem()
+            }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -303,11 +314,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
-        button.image = RingIcon.image(snapshot: model.snapshot, at: model.now, stale: model.isStale,
-                                      appearance: button.effectiveAppearance)
-        button.title = " " + model.percentText + (model.isStale ? " ·" : "")
+        let appearance = button.effectiveAppearance
+        let state = IconState(snapshot: model.snapshot, date: model.now, stale: model.isStale,
+                              dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        if lastIconState != state {
+            lastIconState = state
+            button.image = RingIcon.image(snapshot: model.snapshot, at: model.now, stale: model.isStale,
+                                          appearance: appearance)
+        }
+        let title = " " + model.percentText + (model.isStale ? " ·" : "")
+        if button.title != title { button.title = title }
         let status = model.isStale ? "Last known reading. " : ""
-        button.toolTip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota remaining. Inner ring: \(model.timePercentText) of the weekly time remains. \(model.paceText)."
+        let tooltip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota remaining. Inner ring: \(model.timePercentText) of the weekly time remains. \(model.paceText)."
+        if button.toolTip != tooltip { button.toolTip = tooltip }
         button.setAccessibilityLabel("Codex weekly quota, \(model.percentText) remaining\(model.isStale ? ", stale" : "")")
         button.setAccessibilityHelp(button.toolTip)
     }
