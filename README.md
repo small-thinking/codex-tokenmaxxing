@@ -9,7 +9,7 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. The compact label writes this as `Under pace · 20%`; its tooltip explains that it is an absolute percentage-point gap, not a relative percentage change. This does not measure recent activity. Stale readings hide pace.
 
-This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with a dynamic target pace. Launch at login is available in the popover.
+This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with recorded pace history. Launch at login is available in the popover.
 
 ## Requirements
 
@@ -123,11 +123,13 @@ For a read-only diagnostic that prints only count and expiry dates (no card IDs 
 
 ### Hourly activity and pace
 
-The last 24 hourly bins show **observed weekly-quota consumption**, not raw token counts. The dashed line is the **current required pace**: `quota remaining / hours until reset`. For example, 60% remaining with 120 hours left gives 0.50% per hour; if the quota is unchanged and only 60 hours remain, it becomes 1.00% per hour. The horizontal line updates every 30 seconds using the in-memory reading, without additional polling or disk writes. Stale, expired or unavailable readings hide the target, and the axis expands to include high targets near reset. This is different from the top-level pace gap, which compares quota remaining with weekly time remaining.
+The last 24 hourly bins show **observed weekly-quota consumption**, not raw token counts. The dashed line connects **historically recorded pace samples**: `quota remaining / hours until reset` at each sample's actual timestamp. The first successful quota reading in each UTC half-hour slot records one immutable value. Later quota changes or elapsed time never revise old points, and there is no live horizontal target line. Hover a dot for its exact value and local recording time; the header shows the latest recorded pace.
+
+Sampling uses the existing successful quota refreshes, with no extra polls or disk writes. Missed slots are left empty. The line breaks across observation gaps over 15 minutes, app restarts, account switches, reset changes and quota corrections. Old quota-only archives retain their bars but are not backfilled with pace points that were never recorded. A single new point appears as a dot until another connected sample is available. This differs from the top-level pace gap, which still compares quota remaining with weekly time remaining.
 
 Each successful poll records a quota snapshot. The increase between adjacent readings is split across hour boundaries in proportion to elapsed time, so within-interval timing is an estimate. Only readings within 15 minutes and the same quota window can connect. Resets, decreasing values, clock reversal, account switches and app restarts break the chain. Missing data is never treated as zero usage.
 
-Solid bars have at least 95% observation coverage. Faded bars indicate incomplete coverage or the current, unfinished hour; a dash indicates no observed interval. Hover over a bar for its value, local hour and observation coverage. Partial hours should not be compared directly with the current full-hour target line. On first launch the chart collects new readings; it cannot backfill activity from before installation.
+Solid bars have at least 95% observation coverage. Faded bars indicate incomplete coverage or the current, unfinished hour; a dash indicates no observed interval. Hover over a bar for its value, local hour and observation coverage. Partial hours should not be compared directly with the recorded full-hour pace. On first launch the chart collects new readings; it cannot backfill activity from before installation.
 
 History is bounded to eight days / 10,000 samples in `~/Library/Application Support/Codex Tokenmaxxing/quota-history.json`, written atomically with owner-only file permissions. A SHA-256 digest of the verified account metadata separates accounts; raw account metadata is not stored. A changed account profile can start a new partition. History is disabled if an identifying account field is unavailable. Corrupt files start a new history with a visible warning, and save failures leave current quota functional and recent activity in memory.
 
@@ -146,7 +148,7 @@ The local app-server is an additional process, so the app is not zero-cost. Its 
 
 Quota is fetched from OpenAI through the user's installed Codex. This app does not read `auth.json`, hold an access token, start a model turn, redeem reset credits, or send usage to a project-owned server. It disables analytics for its own child process and does not save raw RPC responses or raw account details.
 
-The current quota and reset-credit reading stays **in memory only**. Restarting starts with unknown current data until a successful account-checked read. The hourly history stores quota percentages, timestamps, reset-window metadata and an opaque account digest locally; history from another account is never shown as the current account’s activity.
+The current quota and reset-credit reading stays **in memory only**. Restarting starts with unknown current data until a successful account-checked read. The hourly history stores quota percentages, frozen pace samples, timestamps, reset-window metadata and an opaque account digest locally; history from another account is never shown as the current account’s activity.
 
 ### Codex executable discovery
 

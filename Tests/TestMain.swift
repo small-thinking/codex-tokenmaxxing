@@ -64,11 +64,16 @@ struct TestMain {
     static func main() async {
         let login = LoginItemTests()
         let history = QuotaHistoryTests()
+        let paceHistory = PaceHistoryTests()
         let core = QuotaSnapshotTests()
         let connection = CodexConnectionTests()
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("pace history immutable half-hour samples and reload", { try await paceHistory.immutableHalfHourlySamplesAndPersistence() }),
+            ("pace history intermediate continuity breaks", { try await paceHistory.continuityIncludesInterveningReadings() }),
+            ("pace legacy migration wake and retention", { try await paceHistory.legacyHistoryDoesNotInventPaceAndWakeDoesNotBackfill() }),
+            ("pace write failure retains immutable memory", { try await paceHistory.writeFailureKeepsImmutablePaceInMemory() }),
             ("hourly allocation", { try await history.hourlyBoundaryAllocation() }),
             ("dynamic required pace and validity boundaries", { try core.testRequiredPacePerHour() }),
             ("login item reflects initial and external system state", { try login.initialStateAndExternalChangesAreReadOnly() }),

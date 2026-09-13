@@ -64,6 +64,7 @@ final class UsageModel: ObservableObject {
     @Published var snapshot: WeeklySnapshot?
     @Published var resetCredits: ResetCreditBank?
     @Published var historyBins: [HourlyQuotaBin] = []
+    @Published var pacePoints: [PacePoint] = []
     @Published var historyMessage: String?
     private let historyStoreTask: Task<QuotaHistoryStore, Error>?
     private var historyAccountKey: String?
@@ -126,6 +127,7 @@ final class UsageModel: ObservableObject {
                 resetCredits = result.resetCredits
                 if historyAccountKey != result.accountKey {
                     historyBins = []
+                    pacePoints = []
                     historyMessage = nil
                     historyAccountKey = result.accountKey
                 }
@@ -145,6 +147,7 @@ final class UsageModel: ObservableObject {
                     resetCredits = nil
                     historyAccountKey = nil
                     historyBins = []
+                    pacePoints = []
                     historyMessage = nil
                     if let store = try? await historyStoreTask?.value { await store.breakContinuity() }
                 }
@@ -179,8 +182,10 @@ final class UsageModel: ObservableObject {
         let date = Date()
         guard let store = try? await historyStoreTask?.value else { return }
         let bins = await store.bins(accountKey: key, at: date)
+        let points = await store.pacePoints(accountKey: key, at: date)
         guard !stopping, historyAccountKey == key else { return }
         historyBins = bins
+        pacePoints = points
     }
 
     func stop() async {

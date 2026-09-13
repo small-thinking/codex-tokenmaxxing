@@ -52,7 +52,7 @@ struct OverviewView: View {
                 }
                 Divider()
                 HourlyActivityView(bins: model.historyBins,
-                                   targetPace: model.isStale ? nil : model.snapshot?.requiredPacePerHour(at: model.now),
+                                   pacePoints: model.pacePoints,
                                    message: model.historyMessage)
                 Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
