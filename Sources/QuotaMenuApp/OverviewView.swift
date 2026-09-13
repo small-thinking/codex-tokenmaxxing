@@ -11,7 +11,7 @@ struct OverviewView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Codex Tokenmaxxing").font(.system(size: 13, weight: .semibold))
                     Spacer()
@@ -54,6 +54,7 @@ struct OverviewView: View {
                                    pacePoints: model.pacePoints,
                                    paceSummary: model.paceText,
                                    message: model.historyMessage)
+                TokenUsageSection(model: model.tokens)
                 Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
                 Divider()
@@ -71,7 +72,7 @@ struct OverviewView: View {
                     Button("Quit") { NSApplication.shared.terminate(nil) }
                 }.buttonStyle(.borderless)
             }
-            .padding(18)
+            .padding(16)
             .frame(width: 340)
         }.frame(width: 340, height: 590)
     }

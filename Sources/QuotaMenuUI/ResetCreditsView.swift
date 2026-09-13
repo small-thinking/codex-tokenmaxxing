@@ -39,7 +39,7 @@ public struct ResetCreditsView: View {
                             }
                         }.padding(.trailing, 4)
                     }
-                    .frame(height: min(CGFloat(bank.availableCredits.count) * 66, 190))
+                    .frame(height: min(CGFloat(bank.availableCredits.count) * 60, 174))
                     if bank.hasIncompleteDetails {
                         Text("Expiry details for \(bank.availableCredits.count) of \(bank.availableCount) opportunities.")
                             .font(.system(size: 10)).foregroundStyle(.secondary)

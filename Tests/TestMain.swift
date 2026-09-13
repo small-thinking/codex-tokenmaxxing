@@ -62,6 +62,8 @@ func captureError(
 @main
 struct TestMain {
     static func main() async {
+        let tokenUsage = TokenUsageTests()
+        let audit = QuotaAuditTests()
         let login = LoginItemTests()
         let history = QuotaHistoryTests()
         let paceHistory = PaceHistoryTests()
@@ -70,6 +72,14 @@ struct TestMain {
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("token modern counters deduplicate and preserve breakdown", { try await tokenUsage.modernCountersDeduplicateAndPreserveBreakdown() }),
+            ("token restart and unchanged scan do not rewrite", { try await tokenUsage.restartAndUnchangedScanDoNotRewrite() }),
+            ("token partial lines and byte budgets", { try await tokenUsage.partialLinesAndByteBudgets() }),
+            ("token truncation and rotation deduplicate", { try await tokenUsage.truncationAndRotationDoNotCountDuplicates() }),
+            ("token legacy invalid and model scope explicit", { try await tokenUsage.legacyInvalidAndModelScopeAreExplicit() }),
+            ("token retention and discovery respect coverage", { try await tokenUsage.retentionAndDiscoveryRespectCoverage() }),
+            ("token large irrelevant lines bounded progress", { try await tokenUsage.largeIrrelevantLinesMakeBoundedProgress() }),
+            ("quota audit append dedup partial recovery and privacy", { try await audit.appendDeduplicationPartialRecoveryAndPrivacy() }),
             ("pace history immutable half-hour samples and reload", { try await paceHistory.immutableHalfHourlySamplesAndPersistence() }),
             ("pace history intermediate continuity breaks", { try await paceHistory.continuityIncludesInterveningReadings() }),
             ("pace recovery estimate formula persistence and usage isolation", { try await paceHistory.matchingWakeRecoversEstimatesWithoutInventingUsage() }),
