@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import QuotaCore
 
 public enum ConnectionError: LocalizedError, Equatable {
@@ -85,7 +86,13 @@ public actor CodexConnection {
             knownAccount = after
             throw ConnectionError.accountChanged
         }
-        return try UsageParser.parse(data: quota, at: Date())
+        let usage = try UsageParser.parse(data: quota, at: Date())
+        // Without an identifying field, a digest of just type/plan could mix different users.
+        let identity = try JSONSerialization.jsonObject(with: before) as? [String: Any]
+        let email = identity?["email"] as? String
+        let key = (email?.isEmpty == false)
+            ? SHA256.hash(data: before).map { String(format: "%02x", $0) }.joined() : nil
+        return UsageSnapshot(weekly: usage.weekly, resetCredits: usage.resetCredits, accountKey: key)
     }
 
     private func accountIdentity(_ data: Data) throws -> Data {

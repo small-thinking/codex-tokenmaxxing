@@ -4,10 +4,13 @@ import Foundation
 public struct UsageSnapshot: Equatable, Sendable {
     public let weekly: WeeklySnapshot
     public let resetCredits: ResetCreditBank?
+    /// Opaque digest of the verified account identity; raw account data stays in memory.
+    public let accountKey: String?
 
-    public init(weekly: WeeklySnapshot, resetCredits: ResetCreditBank?) {
+    public init(weekly: WeeklySnapshot, resetCredits: ResetCreditBank?, accountKey: String? = nil) {
         self.weekly = weekly
         self.resetCredits = resetCredits
+        self.accountKey = accountKey
     }
 }
 
