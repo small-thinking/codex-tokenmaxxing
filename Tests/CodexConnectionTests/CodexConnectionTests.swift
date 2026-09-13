@@ -74,6 +74,9 @@ struct CodexConnectionTests {
                     "primary": {"usedPercent": 8, "windowDurationMins": 300},
                     "secondary": {"usedPercent": 37.5, "windowDurationMins": 10080,
                                   "resetsAt": int(time.time()) + 302400}}}}
+                result["rateLimitResetCredits"] = {"availableCount": 3, "credits": [
+                    {"id": "fixture-credit", "resetType": "codexRateLimits", "status": "available",
+                     "grantedAt": int(time.time()) - 100, "expiresAt": int(time.time()) + 100}]}
             else:
                 send({"id": request["id"], "error": {"code": -32601, "message": "Unexpected method"}})
                 continue
@@ -155,7 +158,7 @@ struct CodexConnectionTests {
         for scenario in ["null-account", "api-key-account", "account-change"] {
             try await withConnection(scenario) { fixture, connection in
                 let error = try await captureError {
-                    _ = try await connection.readWeekly()
+                    _ = try await connection.readUsage()
                 }
                 let expected: ConnectionError = scenario == "account-change" ? .accountChanged : .signInRequired
                 try expect(error as? ConnectionError == expected)
@@ -189,10 +192,13 @@ struct CodexConnectionTests {
     func concurrentReadsShareOneQuotaRequest() async throws {
         try await withConnection("fragmented") { fixture, connection in
             async let first = connection.readWeekly()
-            async let second = connection.readWeekly()
+            async let second = connection.readUsage()
             let (firstSnapshot, secondSnapshot) = try await (first, second)
-            try expect(firstSnapshot == secondSnapshot,
-                       "Concurrent reads should receive the same coalesced snapshot")
+            try expect(firstSnapshot == secondSnapshot.weekly,
+                       "Concurrent weekly and aggregate reads should receive the same coalesced snapshot")
+            try expect(secondSnapshot.resetCredits?.availableCount == 3)
+            try expect(secondSnapshot.resetCredits?.availableCredits.count == 1)
+            try expect(secondSnapshot.resetCredits?.fetchedAt == firstSnapshot.fetchedAt)
             let requests = try String(contentsOf: fixture.directory.appendingPathComponent("quota-count"),
                                       encoding: .utf8)
             try expect(requests.split(separator: "\n").count == 1,
@@ -202,10 +208,11 @@ struct CodexConnectionTests {
 
     func accountSwitchBetweenRefreshesIsReportedBeforeQuotaFailure() async throws {
         try await withConnection("between-refresh-account-change") { fixture, connection in
-            let first = try await connection.readWeekly()
-            try expect(first.usedPercent == 37.5)
+            let first = try await connection.readUsage()
+            try expect(first.weekly.usedPercent == 37.5)
+            try expect(first.resetCredits?.availableCount == 3)
 
-            let changed = try await captureError { _ = try await connection.readWeekly() }
+            let changed = try await captureError { _ = try await connection.readUsage() }
             try expect(changed as? ConnectionError == .accountChanged,
                        "The first read after switching accounts must invalidate the previous reading")
             let countAfterChange = try String(

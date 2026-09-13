@@ -5,11 +5,11 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - Outer ring: quota remaining, from 100% to 0%.
 - Outer ring color: **green at 80–100%**, **mint/teal at 50–<80%**, **amber at 20–<50%**, and **red below 20%**. The empty track stays red at 0%.
 - Inner ring: time remaining until the weekly reset, from full to empty. Its colors run in reverse: **red above 80% time remaining**, **amber at >50–80%**, **mint/teal at >20–50%**, and **green at 20% or less**. Green means the reset is near, not that quota is abundant.
-- Percentage: the latest weekly quota reading.
+- Reset opportunities: server-reported available count, expiry dates, and each card’s remaining validity progress.
 - Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. This does not measure recent activity. Stale readings hide pace.
 
-This first iteration deliberately focuses on the menu bar. History charts, recent pacing analytics, reset-credit cards, and launch at login are planned separately.
+This app focuses on a compact menu bar overview. History charts, recent pacing analytics and launch at login are planned separately.
 
 ## Requirements
 
@@ -54,6 +54,14 @@ The checks also render the actual AppKit rings offscreen and verify color bounda
 open .build/ring-preview.png
 ```
 
+For a synthetic preview of the full popover (debug builds only):
+
+```sh
+./scripts/swiftpm.sh build --product CodexTokenmaxxing
+"$(./scripts/swiftpm.sh build --show-bin-path)/CodexTokenmaxxing" --render-preview=.build/popover.png
+# Add --preview-dark for a dark appearance. No account is queried.
+```
+
 The menu-bar button's own appearance controls the palette and triggers redraws when it changes. Percentage text uses native AppKit styling. Offscreen checks do not replace checking the installed status item over your actual wallpaper.
 
 The SwiftPM wrapper keeps caches inside `.build`. If an upgraded Command Line Tools installation contains mismatched old private/new public `PackageDescription` interfaces, it creates a project-local mirror using the matching public interface and library. It never edits the installed Apple toolchain.
@@ -79,6 +87,24 @@ time remaining  = clamp((resetsAt - now) / (windowDurationMins × 60), 0, 1)
 ```
 
 Expired or missing reset metadata does not create a fabricated new quota window. Unknown data shows a neutral question-mark ring and an em dash. Failed refreshes keep the last successful reading, switch the rings to dim neutral shades, and add a dot after the percentage; the popover explains the failure. Readings older than ten minutes are also marked stale.
+
+### Reset opportunities
+
+The optional `rateLimitResetCredits` bank comes from the **same** quota response, so displaying it adds no polling requests. The count is the last server-reported `availableCount`; detail rows can be capped or unavailable. Only available Codex reset opportunities are listed, with the earliest expiry first.
+
+```text
+validity remaining = clamp((expiresAt - now) / (expiresAt - grantedAt), 0, 1)
+```
+
+Unknown or invalid dates show unavailable progress. An opportunity that expires locally is labeled expired and triggers a refresh at the next timer tick; the app does not invent a replacement count. Weekly quota and reset opportunities are cleared together on sign-out/account changes. Missing optional reset data does not discard valid weekly quota.
+
+The validity bar is separate from the inner ring: it tracks the card’s lifetime from grant to expiry. The inner ring tracks the weekly reset window. Cards are displayed read-only; this version has no redemption control.
+
+For a read-only diagnostic that prints only count and expiry dates (no card IDs or account data):
+
+```sh
+"./dist/Codex Tokenmaxxing.app/Contents/MacOS/CodexTokenmaxxing" --check-resets
+```
 
 ### Refresh and resource use
 

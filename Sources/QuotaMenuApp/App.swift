@@ -9,14 +9,28 @@ import QuotaMenuUI
 @main
 struct QuotaMenuMain {
     @MainActor static func main() {
-        if CommandLine.arguments.contains("--check") {
+        #if DEBUG
+        if let option = CommandLine.arguments.first(where: { $0.hasPrefix("--render-preview=") }) {
+            renderPreview(to: String(option.dropFirst("--render-preview=".count)))
+            return
+        }
+        #endif
+        if CommandLine.arguments.contains("--check") || CommandLine.arguments.contains("--check-resets") {
             Task {
                 let connection = CodexConnection()
                 do {
-                    let snapshot = try await connection.readWeekly()
+                    let usage = try await connection.readUsage()
                     let encoder = JSONEncoder()
                     encoder.dateEncodingStrategy = .iso8601
-                    print(String(decoding: try encoder.encode(snapshot), as: UTF8.self))
+                    if CommandLine.arguments.contains("--check-resets") {
+                        let bank = usage.resetCredits
+                        let diagnostic = ResetCheck(availableCount: bank?.availableCount,
+                            detailCount: bank?.availableCredits.count,
+                            expiryDates: bank?.availableCredits.compactMap(\.expiresAt) ?? [])
+                        print(String(decoding: try encoder.encode(diagnostic), as: UTF8.self))
+                    } else {
+                        print(String(decoding: try encoder.encode(usage.weekly), as: UTF8.self))
+                    }
                     await connection.stop()
                     try? await Task.sleep(nanoseconds: 1_100_000_000)
                     exit(0)
@@ -37,9 +51,16 @@ struct QuotaMenuMain {
     }
 }
 
+private struct ResetCheck: Encodable {
+    let availableCount: Int?
+    let detailCount: Int?
+    let expiryDates: [Date]
+}
+
 @MainActor
 final class UsageModel: ObservableObject {
     @Published var snapshot: WeeklySnapshot?
+    @Published var resetCredits: ResetCreditBank?
     @Published var now = Date()
     @Published var isRefreshing = false
     @Published var errorMessage: String?
@@ -89,17 +110,23 @@ final class UsageModel: ObservableObject {
         refreshTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await connection.readWeekly()
+                let result = try await connection.readUsage()
                 guard !stopping else { return }
-                snapshot = result
+                snapshot = result.weekly
+                resetCredits = result.resetCredits
                 errorMessage = nil
                 failures = 0
                 nextRefresh = Date().addingTimeInterval(300)
-                if let reset = result.resetsAt, reset > Date() { nextRefresh = min(nextRefresh, reset) }
+                if let reset = result.weekly.resetsAt, reset > Date() { nextRefresh = min(nextRefresh, reset) }
+                if let expiry = result.resetCredits?.availableCredits.compactMap(\.expiresAt)
+                    .filter({ $0 > Date() }).min() {
+                    nextRefresh = min(nextRefresh, expiry)
+                }
             } catch {
                 guard !stopping else { return }
                 if let error = error as? ConnectionError, error == .signInRequired || error == .accountChanged {
                     snapshot = nil
+                    resetCredits = nil
                 }
                 errorMessage = error.localizedDescription
                 failures += 1
@@ -149,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 390)
+        popover.contentSize = NSSize(width: 340, height: 620)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }

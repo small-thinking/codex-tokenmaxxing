@@ -33,7 +33,7 @@ public actor CodexConnection {
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
     private var timeouts: [Int: Task<Void, Never>] = [:]
     private var initialized = false
-    private var reading: Task<WeeklySnapshot, Error>?
+    private var reading: Task<UsageSnapshot, Error>?
     private var readerTask: Task<Void, Never>?
     private var knownAccount: Data?
 
@@ -57,14 +57,19 @@ public actor CodexConnection {
     }
 
     public func readWeekly() async throws -> WeeklySnapshot {
+        try await readUsage().weekly
+    }
+
+    /// Reads quota and reset credits atomically from the same account-guarded response.
+    public func readUsage() async throws -> UsageSnapshot {
         if let reading { return try await reading.value }
-        let task = Task { try await self.performReadWeekly() }
+        let task = Task { try await self.performReadUsage() }
         reading = task
         defer { reading = nil }
         return try await task.value
     }
 
-    private func performReadWeekly() async throws -> WeeklySnapshot {
+    private func performReadUsage() async throws -> UsageSnapshot {
         try Task.checkCancellation()
         try await connectIfNeeded()
         // Keep account data in memory only. A second read prevents mixing a mid-refresh switch.
@@ -80,7 +85,7 @@ public actor CodexConnection {
             knownAccount = after
             throw ConnectionError.accountChanged
         }
-        return try QuotaParser.parse(data: quota, at: Date())
+        return try UsageParser.parse(data: quota, at: Date())
     }
 
     private func accountIdentity(_ data: Data) throws -> Data {

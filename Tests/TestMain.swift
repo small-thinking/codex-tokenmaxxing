@@ -64,11 +64,16 @@ struct TestMain {
     static func main() async {
         let core = QuotaSnapshotTests()
         let connection = CodexConnectionTests()
+        let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
             ("quota ring threshold colors in light and dark", { try rings.thresholdColors() }),
             ("unknown and stale rings", { try rings.unknownAndStale() }),
             ("inverse time colors and weekly pace", { try rings.inverseTimeColorsAndPace() }),
+            ("missing or malformed reset banks preserve quota", { try resets.missingAndMalformedBanksPreserveWeeklyUsage() }),
+            ("reset counts survive partial details", { try resets.countsRemainAuthoritativeWithMissingOrPartialDetails() }),
+            ("reset expiry ordering and unknown dates", { try resets.earliestExpiryFirstAndUnknownDatesRemainUnknown() }),
+            ("reset expiry lifetime and local expiry boundaries", { try resets.expiryProgressRequiresValidLifetimeAndKeepsReportedCount() }),
             ("weekly window in primary", { try core.testWeeklyWindowMayBePrimary() }),
             ("weekly secondary and map precedence", { try core.testWeeklyWindowMayBeSecondaryAndMapTakesPrecedence() }),
             ("unrelated map blocks legacy fallback", { try core.testUnrelatedMapBucketDoesNotFallBackToLegacy() }),
