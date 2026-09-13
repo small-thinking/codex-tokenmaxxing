@@ -20,7 +20,7 @@ func renderPreview(to path: String) {
     let dark = CommandLine.arguments.contains("--preview-dark")
     let host = NSHostingView(rootView: OverviewView(model: model).environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
-    host.frame = NSRect(x: 0, y: 0, width: 340, height: 620)
+    host.frame = NSRect(x: 0, y: 0, width: 340, height: 455)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

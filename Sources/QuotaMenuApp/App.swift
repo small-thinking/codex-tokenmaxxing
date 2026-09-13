@@ -77,9 +77,8 @@ final class UsageModel: ObservableObject {
     }
     var paceText: String {
         guard !isStale, let gap = snapshot?.paceGap(at: now) else { return "Pace unavailable until a fresh reading" }
-        if abs(gap) < 1 { return "On pace · near the weekly baseline" }
-        return String(format: "%@ · %.0f pp %@ baseline", gap > 0 ? "Under pace" : "Over pace",
-                      abs(gap), gap > 0 ? "more quota than" : "less quota than")
+        if abs(gap) < 1 { return "On pace" }
+        return String(format: "%@ · %.0f%%", gap > 0 ? "Under pace" : "Over pace", abs(gap))
     }
     var countdown: String {
         guard let reset = snapshot?.resetsAt else { return "Reset time unavailable" }
@@ -176,7 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 620)
+        popover.contentSize = NSSize(width: 340, height: 455)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }

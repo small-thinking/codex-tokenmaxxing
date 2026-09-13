@@ -20,10 +20,13 @@ public struct ResetCreditsView: View {
                 Spacer()
                 Text(bank.map { String($0.availableCount) } ?? "—")
                     .font(.system(size: 15, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .help("Available count from the latest reading")
             }
             if let bank {
-                Text(stale ? "Last known available count · refresh needed" : "Available count from the latest reading")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                if stale {
+                    Text("Last known count · refresh needed")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
                 if bank.availableCredits.isEmpty {
                     Text(bank.availableCount == 0 ? "No reset opportunities available." : "Expiry details unavailable.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
