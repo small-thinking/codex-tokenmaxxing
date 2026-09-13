@@ -47,6 +47,10 @@ Tests use local fake app-server executables and do not query an authenticated ac
 
 The SwiftPM wrapper keeps caches inside `.build`. If an upgraded Command Line Tools installation contains mismatched old private/new public `PackageDescription` interfaces, it creates a project-local mirror using the matching public interface and library. It never edits the installed Apple toolchain.
 
+## Continuous integration
+
+[Swift checks](../../actions/workflows/swift.yml) runs on every pull request, on pushes to `main`, and on manual dispatch. It validates shell scripts and bundle metadata, runs the dependency-free quota/transport checks, and builds and verifies an ad-hoc signed release app on a macOS 15 runner. CI uses fake Codex responses and does not require a Codex login or account secrets. New commits cancel obsolete runs for the same PR.
+
 ## How quota is read
 
 The app starts `codex -c analytics.enabled=false app-server --listen stdio://` and uses newline-delimited JSON-RPC:
