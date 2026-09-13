@@ -66,7 +66,15 @@ public struct ResetCreditsView: View {
             }
             if let fraction = credit.remainingValidityFraction(at: now) {
                 HStack(spacing: 8) {
-                    ProgressView(value: fraction).tint(stale ? .gray : (fraction <= 0.2 ? .red : .teal))
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.secondary.opacity(0.15))
+                            Capsule().fill(stale ? Color.gray : (fraction <= 0.2 ? .red : .teal))
+                                .frame(width: geometry.size.width * fraction)
+                        }
+                    }.frame(height: 5)
+                        .accessibilityLabel("Validity remaining")
+                        .accessibilityValue(String(format: "%.0f percent", fraction * 100))
                     Text(String(format: "%.0f%% validity left", fraction * 100))
                         .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
                 }.accessibilityElement(children: .combine)

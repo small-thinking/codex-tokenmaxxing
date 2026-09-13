@@ -8,6 +8,7 @@ struct OverviewView: View {
     private var appearance: NSAppearance { NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)! }
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Text("Codex Tokenmaxxing").font(.system(size: 13, weight: .semibold))
@@ -47,6 +48,8 @@ struct OverviewView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
+            ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
+            Divider()
             HStack(spacing: 10) {
                 Group {
                     if model.isRefreshing { Text("Updating…") }
@@ -62,6 +65,7 @@ struct OverviewView: View {
         }
         .padding(20)
         .frame(width: 340)
+        }.frame(width: 340, height: 620)
     }
 
     private func legend(_ label: String, value: String, color: NSColor?) -> some View {
