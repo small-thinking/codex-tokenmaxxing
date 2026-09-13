@@ -178,3 +178,9 @@ scripts/                   Build, test wrapper, local install
 ```
 
 The two-ring information design is inspired by [CodexMeter](https://github.com/raycalrui/CodexMeter). This repository implements a smaller app with its own drawing and connection code.
+
+### Measuring idle CPU
+
+`python3 scripts/measure-idle.py --seconds 30` measures CPU-time deltas for the installed app and its direct child processes. One fully occupied CPU core is 100%. Compare with the popover closed and similar desktop activity; this is a short measurement, not a battery-life estimate.
+
+The status item resolves appearance on the existing 30-second timer. It deliberately avoids observing `effectiveAppearance`: AppKit may emit changes while rendering status-item snapshots, creating an image-update feedback loop. Model notifications are coalesced, and unchanged image state and text are not reassigned.
