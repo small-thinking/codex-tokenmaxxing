@@ -17,11 +17,27 @@ public actor TokenUsageStore {
         var skippingLine = false
         var model = "unknown"
         var turnModels: [String: String] = [:]
+        var reasoningLevel: String? = nil
+        var turnReasoningLevels: [String: String]? = nil
         var hasLegacy = false
         var hasModern = false
     }
+    private struct HourModelKey: Hashable {
+        let hour: Date
+        let model: String
+    }
+    private struct EnrichmentBucket: Codable {
+        let baseline: HourlyTokenUsage
+        var replayed: [HourlyTokenUsage] = []
+    }
+    private struct Enrichment: Codable {
+        // Move, rather than copy, old response hashes here. Both dictionaries deduplicate records.
+        var pendingResponses: [String: Date]
+        var buckets: [EnrichmentBucket]
+    }
     private struct Archive: Codable {
-        var version = 1
+        var version = 2
+        var enrichment: Enrichment? = nil
         var cursors: [String: Cursor] = [:]
         var bins: [HourlyTokenUsage] = []
         var responses: [String: Date] = [:]
@@ -69,8 +85,16 @@ public actor TokenUsageStore {
             guard size <= maxCheckpointBytes else { throw StoreError.checkpointTooLarge }
             let data = try Data(contentsOf: file)
             let restored = try decoder.decode(Archive.self, from: data)
-            guard restored.version == 1, Self.validArchive(restored) else { throw StoreError.invalidCheckpoint }
+            guard (1...2).contains(restored.version), Self.validArchive(restored) else { throw StoreError.invalidCheckpoint }
             archive = restored
+            if restored.version == 1 {
+                archive.version = 2
+                archive.enrichment = Enrichment(pendingResponses: restored.responses,
+                                                buckets: restored.bins.map { EnrichmentBucket(baseline: $0) })
+                archive.responses = [:]
+                archive.cursors = [:] // Bounded replay enriches verified old buckets without recounting.
+                dirty = true
+            }
         } else {
             archive = Archive()
         }
@@ -132,7 +156,7 @@ public actor TokenUsageStore {
     public func report(at now: Date = Date()) -> TokenUsageReport {
         let cutoff = now.addingTimeInterval(-retention)
         let bins = archive.bins.filter { $0.hour >= cutoff && $0.hour <= now }
-            .sorted { $0.hour == $1.hour ? $0.model < $1.model : $0.hour < $1.hour }
+            .sorted { ($0.hour, $0.model, $0.reasoningLevel) < ($1.hour, $1.model, $1.reasoningLevel) }
         let legacy = archive.cursors.values.filter { $0.hasLegacy && !$0.hasModern }.count
         let partial = hasBacklog
         var notes: [String] = []
@@ -140,17 +164,17 @@ public actor TokenUsageStore {
         if legacy > 0 { notes.append("Older logs without response-level counters are excluded; historical coverage is partial.") }
         if archive.discardedLines > 0 { notes.append("Some invalid or oversized token records were skipped.") }
         return TokenUsageReport(bins: bins, latestScan: statistics,
-                                coverageStart: archive.responses.values.min(), catchingUp: partial,
+                                coverageStart: [archive.responses.values.min(), archive.enrichment?.pendingResponses.values.min()].compactMap { $0 }.min(), catchingUp: partial,
                                 legacyFiles: legacy, warning: notes.isEmpty ? nil : notes.joined(separator: " "))
     }
 
     /// UTC hours are stable across daylight-saving transitions. All fields are safe aggregate data.
     public func exportCSV(at now: Date = Date()) -> String {
         let format = ISO8601DateFormatter()
-        var lines = ["hour_utc,model,input_tokens,cached_input_tokens,cache_write_input_tokens,output_tokens,reasoning_output_tokens,total_tokens,responses"]
+        var lines = ["hour_utc,model,reasoning_level,input_tokens,cached_input_tokens,cache_write_input_tokens,output_tokens,reasoning_output_tokens,total_tokens,responses"]
         for bin in report(at: now).bins {
             let c = bin.counts
-            lines.append("\(format.string(from: bin.hour)),\(bin.model),\(c.input),\(c.cachedInput),\(c.cacheWriteInput),\(c.output),\(c.reasoningOutput),\(c.total),\(bin.responses)")
+            lines.append("\(format.string(from: bin.hour)),\(bin.model),\(bin.reasoningLevel),\(c.input),\(c.cachedInput),\(c.cacheWriteInput),\(c.output),\(c.reasoningOutput),\(c.total),\(bin.responses)")
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -265,12 +289,19 @@ public actor TokenUsageStore {
         }
         if type == "turn_context" {
             let model = Self.safeModel(payload["model"] as? String)
+            let reasoningLevel = Self.safeReasoningLevel(payload["effort"] as? String)
             cursor.model = model
+            cursor.reasoningLevel = reasoningLevel
             if let turn = payload["turn_id"] as? String, !turn.isEmpty {
                 // Bound checkpoint growth in extremely long threads. Unknown is preferable to
                 // borrowing another turn's model when metadata is absent.
-                if cursor.turnModels.count >= 256 { cursor.turnModels.removeAll() }
+                if cursor.turnModels.count >= 256 {
+                    cursor.turnModels.removeAll()
+                    cursor.turnReasoningLevels = [:]
+                }
                 cursor.turnModels[Self.digest(turn)] = model
+                if cursor.turnReasoningLevels == nil { cursor.turnReasoningLevels = [:] }
+                cursor.turnReasoningLevels?[Self.digest(turn)] = reasoningLevel
             }
             return
         }
@@ -289,27 +320,79 @@ public actor TokenUsageStore {
         }
         guard date >= now.addingTimeInterval(-retention), date <= now.addingTimeInterval(300) else { return }
         let key = Self.digest(rawID)
-        guard archive.responses[key] == nil else { statistics.duplicates += 1; return }
-        guard archive.responses.count < 1_000_000 else {
-            statistics.invalidRecords += 1; archive.discardedLines += 1; dirty = true; return
-        }
         let model: String
+        let reasoningLevel: String
         if let turn = payload["turn_id"] as? String {
             model = cursor.turnModels[Self.digest(turn)] ?? "unknown"
-        } else { model = cursor.model }
-        let hour = Date(timeIntervalSince1970: floor(date.timeIntervalSince1970 / 3600) * 3600)
-        if let index = archive.bins.firstIndex(where: { $0.hour == hour && $0.model == model }) {
-            archive.bins[index].counts = archive.bins[index].counts.adding(counts)
-            archive.bins[index].responses += 1
+            reasoningLevel = cursor.turnReasoningLevels?[Self.digest(turn)] ?? "unknown"
         } else {
-            guard archive.bins.count < 250_000 else {
-                statistics.invalidRecords += 1; archive.discardedLines += 1; dirty = true; return
-            }
-            archive.bins.append(HourlyTokenUsage(hour: hour, model: model, counts: counts, responses: 1))
+            model = cursor.model
+            reasoningLevel = cursor.reasoningLevel ?? "unknown"
         }
+        let hour = Date(timeIntervalSince1970: floor(date.timeIntervalSince1970 / 3600) * 3600)
+        let sample = HourlyTokenUsage(hour: hour, model: model, counts: counts, responses: 1,
+                                     reasoningLevel: reasoningLevel)
+        if let oldDate = archive.enrichment?.pendingResponses[key] {
+            statistics.duplicates += 1
+            archive.enrichment?.pendingResponses[key] = nil
+            archive.responses[key] = oldDate
+            if oldDate == date { enrich(sample) }
+            dirty = true
+            return
+        }
+        guard archive.responses[key] == nil else { statistics.duplicates += 1; return }
+        guard archive.responses.count + (archive.enrichment?.pendingResponses.count ?? 0) < 1_000_000,
+              archive.bins.count < 250_000 else {
+            statistics.invalidRecords += 1; archive.discardedLines += 1; dirty = true; return
+        }
+        Self.add(sample, to: &archive.bins)
         archive.responses[key] = date
         statistics.newRecords += 1
         dirty = true
+    }
+
+    private static func add(_ sample: HourlyTokenUsage, to bins: inout [HourlyTokenUsage]) {
+        if let index = bins.firstIndex(where: {
+            $0.hour == sample.hour && $0.model == sample.model && $0.reasoningLevel == sample.reasoningLevel
+        }) {
+            bins[index].counts = bins[index].counts.adding(sample.counts)
+            bins[index].responses += sample.responses
+        } else { bins.append(sample) }
+    }
+
+    private func enrich(_ sample: HourlyTokenUsage) {
+        guard let index = archive.enrichment?.buckets.firstIndex(where: {
+            $0.baseline.hour == sample.hour && $0.baseline.model == sample.model
+        }) else { return }
+        Self.add(sample, to: &archive.enrichment!.buckets[index].replayed)
+        let bucket = archive.enrichment!.buckets[index]
+        let counts = bucket.replayed.reduce(TokenCounts()) { $0.adding($1.counts) }
+        let responses = bucket.replayed.reduce(0) { $0 + $1.responses }
+        // Only a complete, exact replay may replace an existing aggregate. Unknown survives
+        // missing files, changed counters or model metadata; new records are separate additions.
+        guard counts == bucket.baseline.counts, responses == bucket.baseline.responses,
+              let original = archive.bins.firstIndex(where: {
+                  $0.hour == sample.hour && $0.model == sample.model && $0.reasoningLevel == "unknown"
+              }), archive.bins.count + bucket.replayed.count <= 250_000 else { return }
+        var remaining = archive.bins[original]
+        let base = bucket.baseline.counts
+        remaining.counts = TokenCounts(input: remaining.counts.input - base.input,
+            cachedInput: remaining.counts.cachedInput - base.cachedInput,
+            cacheWriteInput: remaining.counts.cacheWriteInput - base.cacheWriteInput,
+            output: remaining.counts.output - base.output,
+            reasoningOutput: remaining.counts.reasoningOutput - base.reasoningOutput,
+            total: remaining.counts.total - base.total)
+        remaining.responses -= bucket.baseline.responses
+        archive.bins.remove(at: original)
+        if remaining.responses > 0 { Self.add(remaining, to: &archive.bins) }
+        for bin in bucket.replayed { Self.add(bin, to: &archive.bins) }
+        archive.enrichment?.buckets.remove(at: index)
+    }
+
+    private static func safeReasoningLevel(_ value: String?) -> String {
+        guard let value, ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "unknown"].contains(value)
+        else { return "unknown" }
+        return value
     }
 
     private static func counts(_ object: [String: Any]?) -> TokenCounts? {
@@ -344,11 +427,18 @@ public actor TokenUsageStore {
         let oldBins = archive.bins.count, oldResponses = archive.responses.count
         archive.bins.removeAll { $0.hour < cutoff }
         archive.responses = archive.responses.filter { $0.value >= cutoff }
+        if let enrichment = archive.enrichment {
+            archive.enrichment?.pendingResponses = enrichment.pendingResponses.filter { $0.value >= cutoff }
+            archive.enrichment?.buckets.removeAll { $0.baseline.hour < cutoff }
+            if archive.enrichment?.pendingResponses.isEmpty == true { archive.enrichment = nil }
+            if archive.enrichment?.pendingResponses.count != enrichment.pendingResponses.count ||
+                archive.enrichment?.buckets.count != enrichment.buckets.count { dirty = true }
+        }
         if archive.bins.count != oldBins || archive.responses.count != oldResponses { dirty = true }
     }
 
-    private static func validArchive(_ value: Archive) -> Bool {
-        let ceiling: Int64 = 1_000_000_000_000_000_000
+    private static func validArchive(_ value: Archive, binLimit: Int = 250_000,
+                                     ceiling: Int64 = 1_000_000_000_000_000_000) -> Bool {
         var aggregate: Int64 = 0
         for bin in value.bins {
             guard bin.counts.total >= 0, bin.counts.total <= ceiling - aggregate else { return false }
@@ -357,10 +447,14 @@ public actor TokenUsageStore {
         func isDigest(_ text: String) -> Bool {
             text.count == 64 && text.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
         }
-        return value.cursors.count <= 100_000 && value.bins.count <= 250_000 && value.responses.count <= 1_000_000 &&
+        return value.cursors.count <= 100_000 && value.bins.count <= binLimit && value.responses.count + (value.enrichment?.pendingResponses.count ?? 0) <= 1_000_000 &&
+        validEnrichment(value) &&
         value.discardedLines >= 0 &&
         value.cursors.allSatisfy { key, cursor in
             isDigest(key) && isDigest(cursor.identity) && cursor.model == safeModel(cursor.model) &&
+                (cursor.reasoningLevel == nil || cursor.reasoningLevel == safeReasoningLevel(cursor.reasoningLevel)) &&
+                (cursor.turnReasoningLevels ?? [:]).count <= 256 &&
+                (cursor.turnReasoningLevels ?? [:]).allSatisfy { isDigest($0.key) && $0.value == safeReasoningLevel($0.value) } &&
                 cursor.turnModels.count <= 256 && cursor.turnModels.allSatisfy { isDigest($0.key) && $0.value == safeModel($0.value) }
         } &&
         value.responses.allSatisfy { isDigest($0.key) && $0.value.timeIntervalSince1970.isFinite && $0.value.timeIntervalSince1970 >= 0 } &&
@@ -368,10 +462,42 @@ public actor TokenUsageStore {
             let c = bin.counts
             return bin.hour.timeIntervalSince1970.isFinite && bin.hour.timeIntervalSince1970 >= 0 &&
                 bin.responses >= 0 && bin.responses <= 1_000_000 && bin.model == safeModel(bin.model) &&
+                bin.reasoningLevel == safeReasoningLevel(bin.reasoningLevel) &&
                 c.input >= 0 && c.output >= 0 && c.total >= 0 && c.cachedInput >= 0 && c.cacheWriteInput >= 0 &&
                 c.reasoningOutput >= 0 && c.cachedInput <= c.input && c.cacheWriteInput <= c.input &&
                 c.reasoningOutput <= c.output && c.input <= Int64.max - c.output && c.input + c.output == c.total
         }
+    }
+
+    private static func validEnrichment(_ value: Archive) -> Bool {
+        guard let enrichment = value.enrichment else { return true }
+        guard value.version == 2, enrichment.buckets.count <= 250_000,
+              Set(enrichment.pendingResponses.keys).isDisjoint(with: value.responses.keys) else { return false }
+        // Reuse the normal counter/hash validators without recursively retaining migration state.
+        let samples = enrichment.buckets.flatMap { [$0.baseline] + $0.replayed }
+        guard enrichment.buckets.allSatisfy({ $0.replayed.count <= 9 }) else { return false }
+        var check = Archive()
+        check.bins = samples
+        check.responses = enrichment.pendingResponses
+        guard validArchive(check, binLimit: 2_500_000, ceiling: 2_000_000_000_000_000_000) else { return false }
+        let originals = Dictionary(grouping: value.bins.filter { $0.reasoningLevel == "unknown" }) {
+            HourModelKey(hour: $0.hour, model: $0.model)
+        }
+        var seenBuckets = Set<HourModelKey>()
+        for bucket in enrichment.buckets {
+            let key = HourModelKey(hour: bucket.baseline.hour, model: bucket.baseline.model)
+            guard seenBuckets.insert(key).inserted else { return false }
+            guard bucket.baseline.reasoningLevel == "unknown",
+                  bucket.replayed.allSatisfy({ $0.hour == bucket.baseline.hour && $0.model == bucket.baseline.model }),
+                  let matches = originals[key], matches.count == 1, let current = matches.first,
+                  current.responses >= bucket.baseline.responses else { return false }
+            let currentValues = [current.counts.input, current.counts.cachedInput, current.counts.cacheWriteInput,
+                                 current.counts.output, current.counts.reasoningOutput, current.counts.total]
+            let baseValues = [bucket.baseline.counts.input, bucket.baseline.counts.cachedInput, bucket.baseline.counts.cacheWriteInput,
+                              bucket.baseline.counts.output, bucket.baseline.counts.reasoningOutput, bucket.baseline.counts.total]
+            guard zip(currentValues, baseValues).allSatisfy({ $0 >= $1 }) else { return false }
+        }
+        return true
     }
 
     private func save() throws {

@@ -62,6 +62,7 @@ func captureError(
 @main
 struct TestMain {
     static func main() async {
+        let tokenActivity = TokenActivityTests()
         let tokenUsage = TokenUsageTests()
         let audit = QuotaAuditTests()
         let login = LoginItemTests()
@@ -72,6 +73,10 @@ struct TestMain {
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("token chart hourly window and model effort grouping", { try tokenActivity.chartWindowAndModelEffortGrouping() }),
+            ("token reasoning follows turns and distinct groups", { try await tokenUsage.reasoningLevelsFollowTurnsAndRemainDistinct() }),
+            ("token reasoning migration preserves totals on restart", { try await tokenUsage.legacyReasoningMigrationPreservesTotalsAcrossRestart() }),
+            ("token reasoning migration keeps missing or changed sources unknown", { try await tokenUsage.legacyReasoningMigrationKeepsMissingAndChangedSourcesUnknown() }),
             ("token modern counters deduplicate and preserve breakdown", { try await tokenUsage.modernCountersDeduplicateAndPreserveBreakdown() }),
             ("token restart and unchanged scan do not rewrite", { try await tokenUsage.restartAndUnchangedScanDoNotRewrite() }),
             ("token partial lines and byte budgets", { try await tokenUsage.partialLinesAndByteBudgets() }),

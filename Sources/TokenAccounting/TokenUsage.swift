@@ -32,11 +32,24 @@ public struct TokenCounts: Codable, Equatable, Sendable {
 public struct HourlyTokenUsage: Codable, Equatable, Sendable {
     public let hour: Date
     public let model: String
+    public let reasoningLevel: String
     public var counts: TokenCounts
     public var responses: Int
 
-    public init(hour: Date, model: String, counts: TokenCounts, responses: Int) {
+    public init(hour: Date, model: String, counts: TokenCounts, responses: Int, reasoningLevel: String = "unknown") {
         self.hour = hour; self.model = model; self.counts = counts; self.responses = responses
+        self.reasoningLevel = reasoningLevel
+    }
+
+    private enum CodingKeys: String, CodingKey { case hour, model, counts, responses, reasoningLevel }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        hour = try values.decode(Date.self, forKey: .hour)
+        model = try values.decode(String.self, forKey: .model)
+        counts = try values.decode(TokenCounts.self, forKey: .counts)
+        responses = try values.decode(Int.self, forKey: .responses)
+        reasoningLevel = try values.decodeIfPresent(String.self, forKey: .reasoningLevel) ?? "unknown"
     }
 }
 

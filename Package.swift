@@ -10,7 +10,7 @@ let package = Package(
         .target(name: "TokenAccounting"),
         .target(name: "LoginItemSupport"),
         .target(name: "CodexConnection", dependencies: ["QuotaCore"]),
-        .target(name: "QuotaMenuUI", dependencies: ["QuotaCore"]),
+        .target(name: "QuotaMenuUI", dependencies: ["QuotaCore", "TokenAccounting"]),
         .executableTarget(name: "QuotaMenuApp", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI", "LoginItemSupport", "TokenAccounting"]),
         .executableTarget(name: "QuotaChecks", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI", "LoginItemSupport", "TokenAccounting"], path: "Tests")
     ],

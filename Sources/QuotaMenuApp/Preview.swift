@@ -3,6 +3,8 @@ import AppKit
 import SwiftUI
 import QuotaCore
 import LoginItemSupport
+import TokenAccounting
+import QuotaMenuUI
 
 /// Deterministic production-view preview. Never connects to a live account.
 @MainActor
@@ -45,9 +47,34 @@ func renderPreview(to path: String) {
         }
     }
     let dark = CommandLine.arguments.contains("--preview-dark")
-    let host = NSHostingView(rootView: OverviewView(model: model, loginItem: LoginItemModel(service: PreviewLoginItemService())).environment(\.colorScheme, dark ? .dark : .light)
+    let tokensOnly = CommandLine.arguments.contains("--preview-tokens")
+    let root: AnyView
+    if tokensOnly {
+        var bins: [HourlyTokenUsage] = []
+        let combinations = [("gpt-6-astra", "high"), ("gpt-6-astra", "medium"),
+                            ("gpt-5.6-sol", "high"), ("gpt-5.6-sol", "low"), ("unknown", "unknown")]
+        if !empty {
+            for index in 3..<24 {
+                for (group, pair) in combinations.enumerated() {
+                    let input = Int64((index % 7 + 1) * (5 - group) * 95_000)
+                    let output = Int64((index % 4 + 1) * (5 - group) * 4_000)
+                    bins.append(HourlyTokenUsage(hour: Date(timeIntervalSince1970: hour - Double(23 - index) * 3_600),
+                        model: pair.0, counts: TokenCounts(input: input, cachedInput: input * 4 / 5,
+                            output: output, total: input + output), responses: 10, reasoningLevel: pair.1))
+                }
+            }
+        }
+        root = AnyView(VStack(alignment: .leading, spacing: 12) {
+            Text("Local tokens").font(.system(size: 12, weight: .semibold))
+            TokenActivityView(bins: bins, at: now)
+            Button("Export CSV…") {}.font(.system(size: 9)).buttonStyle(.borderless)
+        }.padding(16).frame(width: 340))
+    } else {
+        root = AnyView(OverviewView(model: model, loginItem: LoginItemModel(service: PreviewLoginItemService())))
+    }
+    let host = NSHostingView(rootView: root.environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
-    host.frame = NSRect(x: 0, y: 0, width: 340, height: 590)
+    host.frame = NSRect(x: 0, y: 0, width: 340, height: tokensOnly ? 450 : 590)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
