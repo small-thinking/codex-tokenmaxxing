@@ -1,0 +1,204 @@
+import AppKit
+import SwiftUI
+import Combine
+import Network
+import QuotaCore
+import CodexConnection
+
+@main
+struct QuotaMenuMain {
+    @MainActor static func main() {
+        if CommandLine.arguments.contains("--check") {
+            Task {
+                let connection = CodexConnection()
+                do {
+                    let snapshot = try await connection.readWeekly()
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    print(String(decoding: try encoder.encode(snapshot), as: UTF8.self))
+                    await connection.stop()
+                    try? await Task.sleep(nanoseconds: 1_100_000_000)
+                    exit(0)
+                } catch {
+                    fputs("\(error.localizedDescription)\n", stderr)
+                    await connection.stop()
+                    try? await Task.sleep(nanoseconds: 1_100_000_000)
+                    exit(1)
+                }
+            }
+            dispatchMain()
+        }
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        application.delegate = delegate
+        application.setActivationPolicy(.accessory)
+        withExtendedLifetime(delegate) { application.run() }
+    }
+}
+
+@MainActor
+final class UsageModel: ObservableObject {
+    @Published var snapshot: WeeklySnapshot?
+    @Published var now = Date()
+    @Published var isRefreshing = false
+    @Published var errorMessage: String?
+    let connection = CodexConnection()
+    private var nextRefresh = Date.distantPast
+    private var failures = 0
+    private var refreshTask: Task<Void, Never>?
+    private var stopping = false
+
+    var isStale: Bool { snapshot.map { $0.isStale(at: now) || errorMessage != nil } ?? false }
+    var percentText: String { snapshot.map { String(format: "%.0f%%", $0.remainingPercent) } ?? "—" }
+    var countdown: String {
+        guard let reset = snapshot?.resetsAt else { return "Reset time unavailable" }
+        guard reset > now else { return "Waiting for reset update" }
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        return formatter.string(from: now, to: reset).map { "Resets in \($0)" } ?? "Resetting soon"
+    }
+
+    func tick(popoverOpen: Bool) {
+        now = Date()
+        if now >= nextRefresh { refresh() }
+        else if popoverOpen, failures == 0, let snapshot, now.timeIntervalSince(snapshot.fetchedAt) >= 60 {
+            refresh()
+        }
+    }
+
+    func opened() {
+        now = Date()
+        if snapshot == nil || now.timeIntervalSince(snapshot!.fetchedAt) >= 60 { refresh() }
+    }
+
+    func refresh() {
+        guard !isRefreshing, !stopping else { return }
+        isRefreshing = true
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await connection.readWeekly()
+                guard !stopping else { return }
+                snapshot = result
+                errorMessage = nil
+                failures = 0
+                nextRefresh = Date().addingTimeInterval(300)
+                if let reset = result.resetsAt, reset > Date() { nextRefresh = min(nextRefresh, reset) }
+            } catch {
+                guard !stopping else { return }
+                if let error = error as? ConnectionError, error == .signInRequired || error == .accountChanged {
+                    snapshot = nil
+                }
+                errorMessage = error.localizedDescription
+                failures += 1
+                nextRefresh = Date().addingTimeInterval(min(900, 60 * pow(2, Double(min(failures - 1, 4)))))
+            }
+            now = Date()
+            isRefreshing = false
+        }
+    }
+
+    func stop() async {
+        stopping = true
+        refreshTask?.cancel()
+        await connection.stop()
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let model = UsageModel()
+    private var statusItem: NSStatusItem!
+    private let popover = NSPopover()
+    private var observation: AnyCancellable?
+    private var timer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+    private let network = NWPathMonitor()
+    private var wasOffline = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Finder relaunches normally reuse an instance; guard direct binary launches as well.
+        let siblings = NSRunningApplication.runningApplications(withBundleIdentifier: "com.small-thinking.codex-tokenmaxxing")
+        if siblings.contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            NSApp.terminate(nil)
+            return
+        }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(togglePopover)
+            button.imagePosition = .imageLeading
+            button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        }
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 340, height: 260)
+        popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
+        observation = model.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.updateStatusItem() }
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.model.tick(popoverOpen: self.popover.isShown)
+            }
+        }
+        timer?.tolerance = 5
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in Task { @MainActor in self?.model.refresh() } }
+        network.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self else { return }
+                if path.status == .satisfied, self.wasOffline { self.model.refresh() }
+                self.wasOffline = path.status != .satisfied
+            }
+        }
+        network.start(queue: DispatchQueue(label: "com.small-thinking.codex-tokenmaxxing.network"))
+        updateStatusItem()
+        model.refresh()
+        if !UserDefaults.standard.bool(forKey: "hasShownWelcome") {
+            UserDefaults.standard.set(true, forKey: "hasShownWelcome")
+            DispatchQueue.main.async { [weak self] in self?.togglePopover() }
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !popover.isShown { togglePopover() }
+        return true
+    }
+
+    @objc private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown { popover.performClose(nil) }
+        else {
+            model.opened()
+            NSApp.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem?.button else { return }
+        button.image = RingIcon.image(snapshot: model.snapshot, at: model.now, stale: model.isStale)
+        button.title = " " + model.percentText + (model.isStale ? " ·" : "")
+        let status = model.isStale ? "Last known reading. " : ""
+        button.toolTip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota. Inner ring: time."
+        button.setAccessibilityLabel("Codex weekly quota, \(model.percentText) remaining\(model.isStale ? ", stale" : "")")
+        button.setAccessibilityHelp(button.toolTip)
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        timer?.invalidate()
+        network.cancel()
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        Task {
+            await model.stop()
+            // Give the owned child's termination fallback time to finish before our process exits.
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
