@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import QuotaCore
+import LoginItemSupport
 
 /// Deterministic production-view preview. Never connects to a live account.
 @MainActor
@@ -35,7 +36,7 @@ func renderPreview(to path: String) {
                               expectedSeconds: index == 23 ? 600 : 3600)
     }
     let dark = CommandLine.arguments.contains("--preview-dark")
-    let host = NSHostingView(rootView: OverviewView(model: model).environment(\.colorScheme, dark ? .dark : .light)
+    let host = NSHostingView(rootView: OverviewView(model: model, loginItem: LoginItemModel(service: PreviewLoginItemService())).environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
     host.frame = NSRect(x: 0, y: 0, width: 340, height: 615)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -52,5 +53,12 @@ func renderPreview(to path: String) {
     }
     do { try png.write(to: URL(fileURLWithPath: path)) }
     catch { fputs("Cannot save preview\n", stderr); exit(1) }
+}
+@MainActor
+private final class PreviewLoginItemService: LoginItemService {
+    var status: LoginItemStatus { .notRegistered }
+    func register() throws {}
+    func unregister() throws {}
+    func openSettings() {}
 }
 #endif

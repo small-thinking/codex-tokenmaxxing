@@ -9,7 +9,7 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. The compact label writes this as `Under pace · 20%`; its tooltip explains that it is an absolute percentage-point gap, not a relative percentage change. This does not measure recent activity. Stale readings hide pace.
 
-This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with a dynamic target pace. Launch at login is planned separately.
+This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with a dynamic target pace. Launch at login is available in the popover.
 
 ## Requirements
 
@@ -34,6 +34,20 @@ See [Apple's Command Line Tools documentation](https://developer.apple.com/docum
 The app lives in the menu bar and does not show a Dock icon. Quit the existing copy before installing an update; the install script preserves the previous bundle in `~/Library/Application Support/Codex Tokenmaxxing/Backups/`.
 
 An installed app runs independently of Terminal. It launches one owned Codex app-server process and closes that process when you quit. It does not terminate the Codex desktop app or other Codex sessions.
+
+### Launch at login
+
+Use the **Launch at login** switch near the bottom of the popover. It uses macOS 13's native `SMAppService.mainApp`, reflects the current system setting, and stays off unless you enable it. No LaunchAgent plist or additional helper is installed. If macOS requires approval, the switch remains off with an explanation and a **Settings…** button to open Login Items. Reopening the popover or returning from System Settings refreshes its state.
+
+Run the installed, code-signed `.app` when changing this setting. The local build remains ad-hoc signed; registration errors are surfaced instead of assuming success. Updates preserve the same bundle identifier and installation path. Turning the switch off prevents future login launches without quitting the current app.
+
+For a status-only diagnostic (does not start Codex or access quota history):
+
+```sh
+"$HOME/Applications/Codex Tokenmaxxing.app/Contents/MacOS/CodexTokenmaxxing" --login-item-status
+```
+
+The same executable supports `--login-item-enable` and `--login-item-disable` for explicit local diagnostics. These change the system setting; enable exits with status 2 if approval is still required. Normal app startup and tests never register a login item automatically.
 
 For local development:
 
@@ -151,6 +165,7 @@ The app-server protocol may change with Codex updates; unsupported quota shapes 
 ```text
 Sources/QuotaCore/          Quota parsing and time calculations
 Sources/CodexConnection/    Owned process, RPC transport, account checks
+Sources/LoginItemSupport/   Native login item status and registration
 Sources/QuotaMenuUI/        Appearance-aware quota and time ring drawing
 Sources/QuotaMenuApp/       AppKit status item and SwiftUI popover
 Tests/                     Quota contracts and fake-server transport tests

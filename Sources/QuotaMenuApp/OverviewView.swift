@@ -1,15 +1,17 @@
 import SwiftUI
 import QuotaMenuUI
+import LoginItemSupport
 
 struct OverviewView: View {
     @ObservedObject var model: UsageModel
+    let loginItem: LoginItemModel
     @Environment(\.colorScheme) private var colorScheme
 
     private var appearance: NSAppearance { NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)! }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Codex Tokenmaxxing").font(.system(size: 13, weight: .semibold))
                     Spacer()
@@ -55,6 +57,7 @@ struct OverviewView: View {
                 Divider()
                 ResetCreditsView(bank: model.resetCredits, now: model.now, stale: model.isStale)
                 Divider()
+                LoginItemSettingsView(model: loginItem)
                 HStack(spacing: 10) {
                     Group {
                         if model.isRefreshing { Text("Updating…") }

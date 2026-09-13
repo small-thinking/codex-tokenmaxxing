@@ -5,10 +5,12 @@ import Network
 import QuotaCore
 import CodexConnection
 import QuotaMenuUI
+import LoginItemSupport
 
 @main
 struct QuotaMenuMain {
     @MainActor static func main() {
+        if handleLoginItemDiagnostic() { return }
         #if DEBUG
         if let option = CommandLine.arguments.first(where: { $0.hasPrefix("--render-preview=") }) {
             renderPreview(to: String(option.dropFirst("--render-preview=".count)))
@@ -191,6 +193,7 @@ final class UsageModel: ObservableObject {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = UsageModel()
+    private let loginItem = LoginItemModel(service: NativeLoginItemService())
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var observation: AnyCancellable?
@@ -221,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 340, height: 615)
-        popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
+        popover.contentViewController = NSHostingController(rootView: OverviewView(model: model, loginItem: loginItem))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }
         }
@@ -251,6 +254,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        loginItem.refresh()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !popover.isShown { togglePopover() }
         return true
@@ -260,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         if popover.isShown { popover.performClose(nil) }
         else {
+            loginItem.refresh()
             model.opened()
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

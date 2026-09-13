@@ -62,6 +62,7 @@ func captureError(
 @main
 struct TestMain {
     static func main() async {
+        let login = LoginItemTests()
         let history = QuotaHistoryTests()
         let core = QuotaSnapshotTests()
         let connection = CodexConnectionTests()
@@ -70,6 +71,8 @@ struct TestMain {
         let checks: [(String, () async throws -> Void)] = [
             ("hourly allocation", { try await history.hourlyBoundaryAllocation() }),
             ("dynamic required pace and validity boundaries", { try core.testRequiredPacePerHour() }),
+            ("login item reflects initial and external system state", { try login.initialStateAndExternalChangesAreReadOnly() }),
+            ("login item registration approval and failure states", { try login.registrationApprovalAndErrorsReflectSystemState() }),
             ("history gaps resets and corrections", { try await history.gapsResetsAndCorrectionsRemainUnknown() }),
             ("history account scoping and restart continuity", { try await history.accountScopingAndRestartContinuity() }),
             ("history persistence validation and retention", { try await history.persistenceValidationDeduplicationAndRetention() }),
