@@ -51,6 +51,15 @@ final class UsageModel: ObservableObject {
 
     var isStale: Bool { snapshot.map { $0.isStale(at: now) || errorMessage != nil } ?? false }
     var percentText: String { snapshot.map { String(format: "%.0f%%", $0.remainingPercent) } ?? "—" }
+    var timePercentText: String {
+        snapshot?.remainingTimeFraction(at: now).map { String(format: "%.0f%%", $0 * 100) } ?? "—"
+    }
+    var paceText: String {
+        guard !isStale, let gap = snapshot?.paceGap(at: now) else { return "Pace unavailable until a fresh reading" }
+        if abs(gap) < 1 { return "On pace · near the weekly baseline" }
+        return String(format: "%@ · %.0f pp %@ baseline", gap > 0 ? "Under pace" : "Over pace",
+                      abs(gap), gap > 0 ? "more quota than" : "less quota than")
+    }
     var countdown: String {
         guard let reset = snapshot?.resetsAt else { return "Reset time unavailable" }
         guard reset > now else { return "Waiting for reset update" }
@@ -140,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 260)
+        popover.contentSize = NSSize(width: 340, height: 390)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }
@@ -192,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       appearance: button.effectiveAppearance)
         button.title = " " + model.percentText + (model.isStale ? " ·" : "")
         let status = model.isStale ? "Last known reading. " : ""
-        button.toolTip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota. Inner ring: time."
+        button.toolTip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota remaining. Inner ring: \(model.timePercentText) of the weekly time remains. \(model.paceText)."
         button.setAccessibilityLabel("Codex weekly quota, \(model.percentText) remaining\(model.isStale ? ", stale" : "")")
         button.setAccessibilityHelp(button.toolTip)
     }

@@ -5,8 +5,8 @@ import QuotaMenuUI
 struct RingIconTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func snapshot(_ remaining: Double) -> WeeklySnapshot {
-        WeeklySnapshot(usedPercent: 100 - remaining, resetsAt: now.addingTimeInterval(302_400),
+    private func snapshot(_ remaining: Double, time: Double = 0.5) -> WeeklySnapshot {
+        WeeklySnapshot(usedPercent: 100 - remaining, resetsAt: now.addingTimeInterval(604_800 * time),
                        windowDurationMins: 10_080, fetchedAt: now)
     }
 
@@ -26,9 +26,9 @@ struct RingIconTests {
         return bitmap
     }
 
-    private func render(_ remaining: Double?, stale: Bool = false, dark: Bool) throws -> NSBitmapImageRep {
+    private func render(_ remaining: Double?, stale: Bool = false, dark: Bool, time: Double = 0.5) throws -> NSBitmapImageRep {
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
-        let icon = RingIcon.image(snapshot: remaining.map(snapshot), at: now, stale: stale, appearance: appearance)
+        let icon = RingIcon.image(snapshot: remaining.map { snapshot($0, time: time) }, at: now, stale: stale, appearance: appearance)
         try expect(!icon.isTemplate, "Template rendering would discard the quota color")
         // Deliberately draw under the opposite ambient appearance, as an offscreen image can be.
         return try bitmap(width: 44, height: 44) {
@@ -73,7 +73,7 @@ struct RingIconTests {
         }
     }
 
-    func neutralTimeUnknownAndStale() throws {
+    func unknownAndStale() throws {
         for dark in [false, true] {
             for remaining: Double? in [0, 20, 50, 80, 100, nil] {
                 let fresh = try render(remaining, dark: dark)
@@ -81,19 +81,42 @@ struct RingIconTests {
                 let staleOuter = try strongestPixel(stale, radius: 7.6...9.4)
                 try expect(isNeutral(staleOuter), "Stale quota must not retain a fresh color")
                 let unknownOrTime = try strongestPixel(fresh, radius: remaining == nil ? 0...6 : 4.2...5.3)
-                try expect(isNeutral(unknownOrTime), "Time / question mark must stay neutral")
-                try expect(dark ? unknownOrTime.redComponent > 0.8 : unknownOrTime.redComponent < 0.25,
+                if remaining == nil { try expect(isNeutral(unknownOrTime), "Question mark must stay neutral") }
+                try expect(dark ? staleOuter.redComponent > 0.8 : staleOuter.redComponent < 0.25,
                            "Neutral detail must follow the requested menu-bar appearance")
                 if remaining != nil {
                     let freshOuter = try strongestPixel(fresh, radius: 7.6...9.4)
                     try expect(staleOuter.alphaComponent < freshOuter.alphaComponent, "Stale ring must be dimmed")
                     let staleTime = try strongestPixel(stale, radius: 4.2...5.3)
+                    try expect(isNeutral(staleTime), "Stale time must be neutral")
                     try expect(staleTime.alphaComponent < unknownOrTime.alphaComponent, "Stale time must be dimmed")
                 } else {
                     try expect(isNeutral(strongestPixel(fresh, radius: 7.6...9.4)), "Unknown must not imply a quota band")
                 }
             }
         }
+    }
+
+    func inverseTimeColorsAndPace() throws {
+        let cases: [(Double, Double)] = [(1, 0), (0.80001, 0), (0.8, 20),
+            (0.50001, 20), (0.5, 50), (0.20001, 50), (0.2, 80), (0.001, 80)]
+        for dark in [false, true] {
+            for (time, quotaBand) in cases {
+                let inner = try strongestPixel(render(90, dark: dark, time: time), radius: 4.2...5.3)
+                let outer = try strongestPixel(render(quotaBand, dark: dark), radius: 7.6...9.4)
+                try expect(abs(inner.redComponent - outer.redComponent) < 0.03 &&
+                           abs(inner.greenComponent - outer.greenComponent) < 0.03 &&
+                           abs(inner.blueComponent - outer.blueComponent) < 0.03,
+                           "Time \(time) must use inverse quota band \(quotaBand), dark=\(dark)")
+            }
+        }
+        try expect(abs(snapshot(60, time: 0.4).paceGap(at: now)! - 20) < 0.001)
+        try expect(abs(snapshot(20, time: 0.4).paceGap(at: now)! + 20) < 0.001)
+        try expect(snapshot(40, time: 0.4).paceGap(at: now) == 0)
+        try expect(snapshot(60).paceGap(at: now.addingTimeInterval(601)) == nil)
+        try expect(snapshot(60, time: 0).paceGap(at: now) == nil)
+        let missing = WeeklySnapshot(usedPercent: 40, resetsAt: nil, windowDurationMins: 10080, fetchedAt: now)
+        try expect(missing.paceGap(at: now) == nil)
     }
 
     private func isNeutral(_ color: NSColor) -> Bool {
@@ -104,7 +127,7 @@ struct RingIconTests {
     /// Synthetic data only. Includes true 22-point icons and enlarged copies on both backgrounds.
     func writePreview(to path: String) throws {
         let remaining: [Double?] = [0, 10, 20, 50, 80, 100, nil, 80]
-        let labels = ["0%", "10%", "20%", "50%", "80%", "100%", "Unknown", "80% stale"]
+        let labels = ["Q0 / T100", "Q10 / T90", "Q20 / T80", "Q50 / T50", "Q80 / T20", "Q100 / T5", "Unknown", "80% stale"]
         let width = remaining.count * 120
         let preview = try bitmap(width: width, height: 400) {
             for (row, dark) in [false, true].enumerated() {
@@ -117,7 +140,7 @@ struct RingIconTests {
                     withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: text])
                 for column in remaining.indices {
                     let x = CGFloat(column) * 120 + 16
-                    let icon = RingIcon.image(snapshot: remaining[column].map(snapshot), at: now,
+                    let icon = RingIcon.image(snapshot: remaining[column].map { snapshot($0, time: [1, 0.9, 0.8, 0.5, 0.2, 0.05, 0.5, 0.5][column]) }, at: now,
                                               stale: column == remaining.count - 1,
                                               appearance: NSAppearance(named: dark ? .darkAqua : .aqua)!)
                     icon.draw(in: NSRect(x: x, y: origin + 128, width: 22, height: 22))
