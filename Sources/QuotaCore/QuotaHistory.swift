@@ -21,6 +21,19 @@ public struct HourlyQuotaBin: Equatable, Sendable {
     }
 }
 
+/// A target recorded at an actual quota observation; its value never changes afterward.
+public struct PacePoint: Codable, Equatable, Sendable {
+    public let date: Date
+    public let percentPerHour: Double
+    public let connectsToPrevious: Bool
+
+    public init(date: Date, percentPerHour: Double, connectsToPrevious: Bool) {
+        self.date = date
+        self.percentPerHour = percentPerHour
+        self.connectsToPrevious = connectsToPrevious
+    }
+}
+
 /// Small local-only history. File I/O and aggregation run on this actor, away from the UI actor.
 /// Sampling gaps, new sessions, account switches, and quota resets never imply observed activity.
 public actor QuotaHistoryStore {
@@ -40,6 +53,8 @@ public actor QuotaHistoryStore {
         let accountKey: String
         let weekly: WeeklySnapshot
         let connectsToPrevious: Bool
+        // Absent in version 1. Only the first reading of each UTC half-hour stores a target.
+        let pacePercentPerHour: Double?
     }
     private struct Archive: Codable {
         let version: Int
@@ -58,7 +73,7 @@ public actor QuotaHistoryStore {
                 let data = try Data(contentsOf: file)
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .secondsSince1970
-                if let archive = try? decoder.decode(Archive.self, from: data), archive.version == 1,
+                if let archive = try? decoder.decode(Archive.self, from: data), (1...2).contains(archive.version),
                    archive.samples.count <= Self.maximumSamples,
                    archive.samples.allSatisfy({ Self.isValid($0) }), Self.isOrdered(archive.samples) {
                     loaded = archive.samples.filter {
@@ -78,7 +93,7 @@ public actor QuotaHistoryStore {
 
     public func record(_ usage: UsageSnapshot) throws {
         guard let accountKey = usage.accountKey else { previous = nil; return }
-        let candidate = Sample(accountKey: accountKey, weekly: usage.weekly, connectsToPrevious: false)
+        let candidate = Sample(accountKey: accountKey, weekly: usage.weekly, connectsToPrevious: false, pacePercentPerHour: nil)
         guard Self.isValid(candidate) else { previous = nil; return }
         if let latest = samples.last(where: { $0.accountKey == accountKey }),
            candidate.weekly.fetchedAt <= latest.weekly.fetchedAt {
@@ -87,7 +102,14 @@ public actor QuotaHistoryStore {
             return
         }
         let connects = previous.map { Self.canConnect($0, candidate) } ?? false
-        let sample = Sample(accountKey: accountKey, weekly: usage.weekly, connectsToPrevious: connects)
+        let slot = floor(usage.weekly.fetchedAt.timeIntervalSince1970 / 1_800)
+        let hasPaceInSlot = samples.contains {
+            $0.accountKey == accountKey && $0.pacePercentPerHour != nil
+                && floor($0.weekly.fetchedAt.timeIntervalSince1970 / 1_800) == slot
+        }
+        let pace = hasPaceInSlot ? nil : usage.weekly.requiredPacePerHour(at: usage.weekly.fetchedAt)
+        let sample = Sample(accountKey: accountKey, weekly: usage.weekly, connectsToPrevious: connects,
+                            pacePercentPerHour: pace)
         samples.append(sample)
         previous = sample
         samples.removeAll { $0.weekly.fetchedAt < usage.weekly.fetchedAt.addingTimeInterval(-Self.retention) }
@@ -97,8 +119,37 @@ public actor QuotaHistoryStore {
         encoder.outputFormatting = [.sortedKeys]
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try encoder.encode(Archive(version: 1, samples: samples)).write(to: file, options: .atomic)
+        try encoder.encode(Archive(version: 2, samples: samples)).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    /// Returns only recorded points within the same visible hours as bins(). No backfill or projection.
+    public func pacePoints(accountKey: String, at now: Date, count: Int = 24) -> [PacePoint] {
+        guard now.timeIntervalSince1970.isFinite else { return [] }
+        let count = min(192, max(1, count))
+        let hour = floor(now.timeIntervalSince1970 / 3_600) * 3_600
+        let start = hour - Double(count - 1) * 3_600
+        var points: [PacePoint] = []
+        var previousSample: Sample?
+        var continuousSincePoint = false
+        for sample in samples where sample.accountKey == accountKey {
+            guard sample.weekly.fetchedAt <= now else { continue }
+            // Inspect every intervening quota reading, including those without a pace point.
+            // Otherwise a gap or restart inside a half-hour would incorrectly join the next point.
+            if let previousSample {
+                continuousSincePoint = continuousSincePoint && sample.connectsToPrevious
+                    && Self.canConnect(previousSample, sample)
+            } else {
+                continuousSincePoint = false
+            }
+            previousSample = sample
+            guard sample.weekly.fetchedAt.timeIntervalSince1970 >= start,
+                  let pace = sample.pacePercentPerHour else { continue }
+            points.append(PacePoint(date: sample.weekly.fetchedAt, percentPerHour: pace,
+                                    connectsToPrevious: !points.isEmpty && continuousSincePoint))
+            continuousSincePoint = true
+        }
+        return points
     }
 
     public func bins(accountKey: String, at now: Date, count: Int = 24) -> [HourlyQuotaBin] {
@@ -139,6 +190,7 @@ public actor QuotaHistoryStore {
               weekly.fetchedAt.timeIntervalSince1970.isFinite, weekly.fetchedAt.timeIntervalSince1970 >= 0,
               let reset = weekly.resetsAt, reset.timeIntervalSince1970.isFinite,
               reset > weekly.fetchedAt, reset <= Date.distantFuture else { return false }
+        if let pace = sample.pacePercentPerHour, !pace.isFinite || pace < 0 { return false }
         return true
     }
 

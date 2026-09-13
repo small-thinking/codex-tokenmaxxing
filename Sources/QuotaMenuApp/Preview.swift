@@ -35,6 +35,13 @@ func renderPreview(to path: String) {
                               consumedPercent: consumed, observedSeconds: observed,
                               expectedSeconds: index == 23 ? 600 : 3600)
     }
+    if !empty {
+        model.pacePoints = (0..<43).filter { !(25...28).contains($0) }.map { index in
+            let value = 0.55 + Double(index) * 0.015 + 0.12 * sin(Double(index) * 0.5)
+            return PacePoint(date: Date(timeIntervalSince1970: hour - 21 * 3600 + Double(index) * 1800),
+                             percentPerHour: value, connectsToPrevious: index != 0 && index != 29)
+        }
+    }
     let dark = CommandLine.arguments.contains("--preview-dark")
     let host = NSHostingView(rootView: OverviewView(model: model, loginItem: LoginItemModel(service: PreviewLoginItemService())).environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
