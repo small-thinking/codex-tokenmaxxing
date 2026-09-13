@@ -62,11 +62,19 @@ func captureError(
 @main
 struct TestMain {
     static func main() async {
+        let history = QuotaHistoryTests()
         let core = QuotaSnapshotTests()
         let connection = CodexConnectionTests()
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("hourly allocation and fixed pace baseline", { try await history.hourlyBoundaryAllocationAndFixedBaseline() }),
+            ("history gaps resets and corrections", { try await history.gapsResetsAndCorrectionsRemainUnknown() }),
+            ("history account scoping and restart continuity", { try await history.accountScopingAndRestartContinuity() }),
+            ("history persistence validation and retention", { try await history.persistenceValidationDeduplicationAndRetention() }),
+            ("history write failure retains memory", { try await history.writeFailurePreservesObservedMemory() }),
+            ("opaque stable account digest", { try await connection.accountDigestIsStableAndOpaque() }),
+            ("missing identity never shares history", { try await connection.missingIdentityDoesNotCreateSharedHistoryKey() }),
             ("quota ring threshold colors in light and dark", { try rings.thresholdColors() }),
             ("unknown and stale rings", { try rings.unknownAndStale() }),
             ("inverse time colors and weekly pace", { try rings.inverseTimeColorsAndPace() }),

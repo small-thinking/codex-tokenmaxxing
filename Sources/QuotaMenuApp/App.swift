@@ -61,6 +61,10 @@ private struct ResetCheck: Encodable {
 final class UsageModel: ObservableObject {
     @Published var snapshot: WeeklySnapshot?
     @Published var resetCredits: ResetCreditBank?
+    @Published var historyBins: [HourlyQuotaBin] = []
+    @Published var historyMessage: String?
+    private let historyStoreTask: Task<QuotaHistoryStore, Error>?
+    private var historyAccountKey: String?
     @Published var now = Date()
     @Published var isRefreshing = false
     @Published var errorMessage: String?
@@ -69,6 +73,10 @@ final class UsageModel: ObservableObject {
     private var failures = 0
     private var refreshTask: Task<Void, Never>?
     private var stopping = false
+
+    init(recordsHistory: Bool = true) {
+        historyStoreTask = recordsHistory ? Task.detached(priority: .utility) { try QuotaHistoryStore() } : nil
+    }
 
     var isStale: Bool { snapshot.map { $0.isStale(at: now) || errorMessage != nil } ?? false }
     var percentText: String { snapshot.map { String(format: "%.0f%%", $0.remainingPercent) } ?? "—" }
@@ -96,6 +104,7 @@ final class UsageModel: ObservableObject {
         else if popoverOpen, failures == 0, let snapshot, now.timeIntervalSince(snapshot.fetchedAt) >= 60 {
             refresh()
         }
+        if !isRefreshing { Task { [weak self] in await self?.reloadHistoryBins() } }
     }
 
     func opened() {
@@ -113,6 +122,11 @@ final class UsageModel: ObservableObject {
                 guard !stopping else { return }
                 snapshot = result.weekly
                 resetCredits = result.resetCredits
+                if historyAccountKey != result.accountKey {
+                    historyBins = []
+                    historyMessage = nil
+                    historyAccountKey = result.accountKey
+                }
                 errorMessage = nil
                 failures = 0
                 nextRefresh = Date().addingTimeInterval(300)
@@ -121,11 +135,16 @@ final class UsageModel: ObservableObject {
                     .filter({ $0 > Date() }).min() {
                     nextRefresh = min(nextRefresh, expiry)
                 }
+                await recordHistory(result)
             } catch {
                 guard !stopping else { return }
                 if let error = error as? ConnectionError, error == .signInRequired || error == .accountChanged {
                     snapshot = nil
                     resetCredits = nil
+                    historyAccountKey = nil
+                    historyBins = []
+                    historyMessage = nil
+                    if let store = try? await historyStoreTask?.value { await store.breakContinuity() }
                 }
                 errorMessage = error.localizedDescription
                 failures += 1
@@ -134,6 +153,32 @@ final class UsageModel: ObservableObject {
             now = Date()
             isRefreshing = false
         }
+    }
+
+    private func recordHistory(_ usage: UsageSnapshot) async {
+        guard historyStoreTask != nil else { return }
+        guard usage.accountKey != nil else {
+            historyMessage = "Activity unavailable for this account reading."
+            return
+        }
+        do {
+            guard let store = try await historyStoreTask?.value else { return }
+            historyMessage = store.loadWarning
+            do { try await store.record(usage) }
+            catch { historyMessage = "History could not be saved; recent activity is in memory." }
+            await reloadHistoryBins()
+        } catch {
+            historyMessage = "Activity history unavailable."
+        }
+    }
+
+    private func reloadHistoryBins() async {
+        guard !stopping, let key = historyAccountKey else { return }
+        let date = Date()
+        guard let store = try? await historyStoreTask?.value else { return }
+        let bins = await store.bins(accountKey: key, at: date)
+        guard !stopping, historyAccountKey == key else { return }
+        historyBins = bins
     }
 
     func stop() async {
@@ -175,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 455)
+        popover.contentSize = NSSize(width: 340, height: 615)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model))
         observation = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateStatusItem() }

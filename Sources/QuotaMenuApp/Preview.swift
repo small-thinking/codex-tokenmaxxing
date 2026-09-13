@@ -7,8 +7,8 @@ import QuotaCore
 @MainActor
 func renderPreview(to path: String) {
     _ = NSApplication.shared
-    let model = UsageModel()
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let model = UsageModel(recordsHistory: false)
+    let now = Date(timeIntervalSince1970: 1_800_000_600)
     model.now = now
     model.snapshot = WeeklySnapshot(usedPercent: 40, resetsAt: now.addingTimeInterval(241_920),
                                    windowDurationMins: 10_080, fetchedAt: now)
@@ -17,10 +17,20 @@ func renderPreview(to path: String) {
         ResetCredit(id: "preview2", grantedAt: now.addingTimeInterval(-432_000), expiresAt: now.addingTimeInterval(432_000)),
         ResetCredit(id: "preview3", grantedAt: now.addingTimeInterval(-86_400), expiresAt: now.addingTimeInterval(864_000))
     ], fetchedAt: now)
+    let hour = floor(now.timeIntervalSince1970 / 3_600) * 3_600
+    let empty = CommandLine.arguments.contains("--preview-empty")
+    model.historyBins = (0..<24).map { index in
+        let missing = empty || index < 3 || index == 15
+        let consumed: Double? = missing ? nil : [0, 0.15, 0.4, 0.9, 1.3, 0.7][index % 6]
+        let observed: Double = missing ? 0 : (index == 9 ? 900 : (index == 23 ? 300 : 3600))
+        return HourlyQuotaBin(start: Date(timeIntervalSince1970: hour - Double(23 - index) * 3600),
+                              consumedPercent: consumed, observedSeconds: observed,
+                              expectedSeconds: index == 23 ? 600 : 3600)
+    }
     let dark = CommandLine.arguments.contains("--preview-dark")
     let host = NSHostingView(rootView: OverviewView(model: model).environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
-    host.frame = NSRect(x: 0, y: 0, width: 340, height: 455)
+    host.frame = NSRect(x: 0, y: 0, width: 340, height: 615)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

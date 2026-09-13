@@ -44,7 +44,9 @@ struct CodexConnectionTests {
             elif method == "account/read":
                 account_reads += 1
                 account = {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}
-                if scenario == "null-account":
+                if scenario == "anonymous-account":
+                    account = {"type": "chatgpt", "planType": "plus"}
+                elif scenario == "null-account":
                     account = None
                 elif scenario == "api-key-account":
                     account = {"type": "apiKey"}
@@ -116,6 +118,25 @@ struct CodexConnectionTests {
             try expect(snapshot.windowDurationMins == 10_080)
             try expect(snapshot.resetsAt != nil)
             try expect(!snapshot.isStale(at: Date()))
+        }
+    }
+
+    func accountDigestIsStableAndOpaque() async throws {
+        try await withConnection("fragmented") { _, connection in
+            let first = try await connection.readUsage()
+            let second = try await connection.readUsage()
+            try expect(first.accountKey == second.accountKey)
+            try expect(first.accountKey?.count == 64)
+            try expect(first.accountKey?.allSatisfy { $0.isHexDigit } == true)
+            try expect(first.accountKey?.contains("fixture") == false)
+        }
+    }
+
+    func missingIdentityDoesNotCreateSharedHistoryKey() async throws {
+        try await withConnection("anonymous-account") { _, connection in
+            let usage = try await connection.readUsage()
+            try expect(usage.weekly.usedPercent == 37.5)
+            try expect(usage.accountKey == nil)
         }
     }
 

@@ -9,7 +9,7 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - Click for labeled ring percentages, the reset countdown, exact local reset time, weekly pace, refresh, and quit.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. The compact label writes this as `Under pace · 20%`; its tooltip explains that it is an absolute percentage-point gap, not a relative percentage change. This does not measure recent activity. Stale readings hide pace.
 
-This app focuses on a compact menu bar overview. History charts, recent pacing analytics and launch at login are planned separately.
+This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with a fixed weekly pace. Launch at login is planned separately.
 
 ## Requirements
 
@@ -59,7 +59,8 @@ For a synthetic preview of the full popover (debug builds only):
 ```sh
 ./scripts/swiftpm.sh build --product CodexTokenmaxxing
 "$(./scripts/swiftpm.sh build --show-bin-path)/CodexTokenmaxxing" --render-preview=.build/popover.png
-# Add --preview-dark for a dark appearance. No account is queried.
+# Add --preview-dark for dark appearance or --preview-empty for first-run activity.
+# No account is queried and the real history store is not accessed.
 ```
 
 The menu-bar button's own appearance controls the palette and triggers redraws when it changes. Percentage text uses native AppKit styling. Offscreen checks do not replace checking the installed status item over your actual wallpaper.
@@ -106,6 +107,16 @@ For a read-only diagnostic that prints only count and expiry dates (no card IDs 
 "./dist/Codex Tokenmaxxing.app/Contents/MacOS/CodexTokenmaxxing" --check-resets
 ```
 
+### Hourly activity and pace
+
+The last 24 hourly bins show **observed weekly-quota consumption**, not raw token counts. The dashed baseline is constant: `100% / 168 hours ≈ 0.60% per hour`. This is different from the top-level pace gap, which compares quota remaining with weekly time remaining.
+
+Each successful poll records a quota snapshot. The increase between adjacent readings is split across hour boundaries in proportion to elapsed time, so within-interval timing is an estimate. Only readings within 15 minutes and the same quota window can connect. Resets, decreasing values, clock reversal, account switches and app restarts break the chain. Missing data is never treated as zero usage.
+
+Solid bars have at least 95% observation coverage. Faded bars indicate incomplete coverage or the current, unfinished hour; a dash indicates no observed interval. Hover over a bar for its value, local hour and observation coverage. Partial hours should not be compared directly with the full-hour pace line. On first launch the chart collects new readings; it cannot backfill activity from before installation.
+
+History is bounded to eight days / 10,000 samples in `~/Library/Application Support/Codex Tokenmaxxing/quota-history.json`, written atomically with owner-only file permissions. A SHA-256 digest of the verified account metadata separates accounts; raw account metadata is not stored. A changed account profile can start a new partition. History is disabled if an identifying account field is unavailable. Corrupt files start a new history with a visible warning, and save failures leave current quota functional and recent activity in memory.
+
 ### Refresh and resource use
 
 - Background quota refresh every five minutes; no overlapping reads.
@@ -119,9 +130,9 @@ The local app-server is an additional process, so the app is not zero-cost. Its 
 
 ### Privacy and storage
 
-Quota is fetched from OpenAI through the user's installed Codex. This app does not read `auth.json`, hold an access token, start a model turn, redeem reset credits, or send usage to a project-owned server. It disables analytics for its own child process and does not save raw RPC responses or account details.
+Quota is fetched from OpenAI through the user's installed Codex. This app does not read `auth.json`, hold an access token, start a model turn, redeem reset credits, or send usage to a project-owned server. It disables analytics for its own child process and does not save raw RPC responses or raw account details.
 
-Version 0.1 keeps the latest reading **in memory only**. Restarting starts with unknown data until a new successful read. This avoids stale persisted readings from a previous account. Local history storage will be introduced with the history chart.
+The current quota and reset-credit reading stays **in memory only**. Restarting starts with unknown current data until a successful account-checked read. The hourly history stores quota percentages, timestamps, reset-window metadata and an opaque account digest locally; history from another account is never shown as the current account’s activity.
 
 ### Codex executable discovery
 
