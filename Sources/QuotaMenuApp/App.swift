@@ -4,6 +4,7 @@ import Combine
 import Network
 import QuotaCore
 import CodexConnection
+import QuotaMenuUI
 
 @main
 struct QuotaMenuMain {
@@ -113,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var observation: AnyCancellable?
+    private var appearanceObservation: NSKeyValueObservation?
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private let network = NWPathMonitor()
@@ -131,6 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePopover)
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            // The menu bar can have a different appearance from the app (for example,
+            // over a dark wallpaper). Redraw when that button's appearance changes.
+            appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+                DispatchQueue.main.async { self?.updateStatusItem() }
+            }
         }
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 340, height: 260)
@@ -181,7 +188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
-        button.image = RingIcon.image(snapshot: model.snapshot, at: model.now, stale: model.isStale)
+        button.image = RingIcon.image(snapshot: model.snapshot, at: model.now, stale: model.isStale,
+                                      appearance: button.effectiveAppearance)
         button.title = " " + model.percentText + (model.isStale ? " ·" : "")
         let status = model.isStale ? "Last known reading. " : ""
         button.toolTip = "\(status)Weekly quota: \(model.percentText) remaining. \(model.countdown). Outer ring: quota. Inner ring: time."

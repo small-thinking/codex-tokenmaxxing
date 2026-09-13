@@ -8,8 +8,9 @@ let package = Package(
     targets: [
         .target(name: "QuotaCore"),
         .target(name: "CodexConnection", dependencies: ["QuotaCore"]),
-        .executableTarget(name: "QuotaMenuApp", dependencies: ["QuotaCore", "CodexConnection"]),
-        .executableTarget(name: "QuotaChecks", dependencies: ["QuotaCore", "CodexConnection"], path: "Tests")
+        .target(name: "QuotaMenuUI", dependencies: ["QuotaCore"]),
+        .executableTarget(name: "QuotaMenuApp", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI"]),
+        .executableTarget(name: "QuotaChecks", dependencies: ["QuotaCore", "CodexConnection", "QuotaMenuUI"], path: "Tests")
     ],
     swiftLanguageModes: [.v5]
 )
