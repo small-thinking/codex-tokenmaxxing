@@ -16,6 +16,19 @@ public struct TokenCounts: Codable, Equatable, Sendable {
         self.output = output; self.reasoningOutput = reasoningOutput; self.total = total
     }
 
+    /// Ratios use aggregate counters, not an average of per-response percentages.
+    public var cacheHitRate: Double? {
+        guard input > 0, cachedInput >= 0, cachedInput <= input else { return nil }
+        return Double(cachedInput) / Double(input)
+    }
+
+    public var outputRatio: Double? {
+        guard input >= 0, output >= 0 else { return nil }
+        let denominator = Double(input) + Double(output)
+        guard denominator > 0 else { return nil }
+        return Double(output) / denominator
+    }
+
     public func adding(_ other: Self) -> Self {
         // Validated store counters cannot reach this limit. Saturation also makes the public
         // aggregation helper safe for callers constructing arbitrary counters.

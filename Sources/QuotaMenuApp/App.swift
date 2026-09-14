@@ -257,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Resolve appearance on the existing 30-second tick instead.
         }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 590)
+        popover.contentSize = NSSize(width: 340, height: 606)
         popover.contentViewController = NSHostingController(rootView: OverviewView(model: model, loginItem: loginItem))
         observation = model.objectWillChange.sink { [weak self] in
             guard let self, !self.statusUpdatePending else { return }

@@ -74,7 +74,7 @@ struct OverviewView: View {
             }
             .padding(16)
             .frame(width: 340)
-        }.frame(width: 340, height: 590)
+        }.frame(width: 340, height: 606)
     }
 
     private func legend(_ label: String, value: String, color: NSColor?) -> some View {
