@@ -48,8 +48,18 @@ func renderPreview(to path: String) {
     }
     let dark = CommandLine.arguments.contains("--preview-dark")
     let tokensOnly = CommandLine.arguments.contains("--preview-tokens")
+    let summaryOnly = CommandLine.arguments.contains("--preview-token-summary")
     let root: AnyView
-    if tokensOnly {
+    if summaryOnly {
+        root = AnyView(VStack(spacing: 16) {
+            TokenUsageSummary(counts: TokenCounts(input: 7_200_000, cachedInput: 6_824_000,
+                output: 50_000, total: 7_250_000))
+            Divider()
+            TokenUsageSummary(counts: TokenCounts())
+            Divider()
+            TokenUsageSummary(counts: nil)
+        }.padding(16).frame(width: 340))
+    } else if tokensOnly {
         var bins: [HourlyTokenUsage] = []
         let combinations = [("gpt-6-astra", "high"), ("gpt-6-astra", "medium"),
                             ("gpt-5.6-sol", "high"), ("gpt-5.6-sol", "low"), ("unknown", "unknown")]
@@ -74,7 +84,7 @@ func renderPreview(to path: String) {
     }
     let host = NSHostingView(rootView: root.environment(\.colorScheme, dark ? .dark : .light)
         .background(dark ? Color(white: 0.12) : Color.white))
-    host.frame = NSRect(x: 0, y: 0, width: 340, height: tokensOnly ? 450 : 590)
+    host.frame = NSRect(x: 0, y: 0, width: 340, height: summaryOnly ? 200 : (tokensOnly ? 450 : 606))
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

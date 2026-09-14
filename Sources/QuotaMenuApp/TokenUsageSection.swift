@@ -20,17 +20,12 @@ struct TokenUsageSection: View {
                 }.font(.system(size: 9)).buttonStyle(.borderless)
             }.padding(.top, 6)
         } label: {
-            HStack {
-                Text("Local tokens").font(.system(size: 11, weight: .medium))
-                Spacer()
-                Text(model.report == nil ? "—" : "\(format(currentHour)) this hour")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-            }
+            TokenUsageSummary(counts: currentHour)
         }.help(coverage)
     }
 
-    private var currentHour: Int64 {
-        TokenActivityData.hours(model.report?.bins ?? [], at: Date()).last?.counts?.total ?? 0
+    private var currentHour: TokenCounts? {
+        TokenActivityData.hours(model.report?.bins ?? [], at: Date()).last?.counts
     }
 
     private var coverage: String {
@@ -39,6 +34,33 @@ struct TokenUsageSection: View {
         if let warning = model.report?.warning { notes.append(warning) }
         if let checked = model.lastScannedAt { notes.append("Checked \(checked.formatted(date: .omitted, time: .shortened)).") }
         return notes.joined(separator: " ")
+    }
+
+}
+
+/// Remains visible while the details are collapsed; every metric uses this hour's totals.
+struct TokenUsageSummary: View {
+    let counts: TokenCounts?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("Local tokens").font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text(counts.map { "\(format($0.total)) this hour" } ?? "—")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 12) {
+                Text("Cache hit \(percent(counts?.cacheHitRate, decimals: 1))")
+                    .help("Current hour: cached input ÷ all input tokens. Output is excluded.")
+                Text("Output \(percent(counts?.outputRatio, decimals: 2))")
+                    .help("Current hour: output ÷ (input + output). Cached input is already part of input.")
+            }.font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
+        }
+    }
+
+    private func percent(_ value: Double?, decimals: Int) -> String {
+        value.map { String(format: "%.*f%%", decimals, $0 * 100) } ?? "—"
     }
 
     private func format(_ value: Int64) -> String {

@@ -21,6 +21,14 @@ struct TokenActivityTests {
                    "A recorded zero and missing hour remain distinguishable")
         try expect(hours.last?.counts?.total == 190 && hours.last?.counts?.cachedInput == 110,
                    "Cached input must not be added twice to bar height")
+        let current = hours.last!.counts!
+        try expect(current.cacheHitRate == 110.0 / 160,
+                   "Cache hit rate uses all input as denominator, weighted across models")
+        try expect(current.outputRatio == 30.0 / 190,
+                   "Output share uses input plus output without adding cached input again")
+        try expect(TokenCounts().cacheHitRate == nil && TokenCounts().outputRatio == nil)
+        let outputOnly = TokenCounts(output: 20, total: 20)
+        try expect(outputOnly.cacheHitRate == nil && outputOnly.outputRatio == 1)
         let rows = TokenActivityData.breakdown(bins, at: now)
         try expect(rows.count == 3 && rows[0].id.model == "astra" && rows[0].id.reasoning == "high")
         try expect(rows[0].counts.total == 180 && rows[1].counts.total == 70)

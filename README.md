@@ -188,6 +188,8 @@ The status item resolves appearance on the existing 30-second timer. It delibera
 
 ### Local token evidence
 
+The collapsed **Local tokens** header shows the current hour’s total, cache hit rate (`cached input / input`), and output share (`output / (input + output)`). Ratios use summed counters across models; missing or zero denominators show a dash.
+
 Expand **Local tokens** below the quota chart for a 24-hour stacked token chart and **model × reasoning level** breakdown. Click a bar to filter the table to that hour; **All 24h** restores the full window. Blue is uncached input, teal is cached input, and orange is output. Table Input includes Cached. Coverage and checked-time details live in hover help and CSV metadata; **Export CSV…** saves the underlying evidence. Counts are local model throughput: `total = input + output`; cached input is already inside input and reasoning output is already inside output. Reused context can therefore contribute large token totals.
 
 The collector reads `~/.codex/sessions` and `~/.codex/archived_sessions`. It accepts per-response `token_usage_record.usage`, globally deduplicates hashed response IDs (including copied fork history), and resolves the model from turn metadata. Unknown/internal models remain separate in export; their billing contribution is not established. It does not add cumulative `token_count` notifications. Older files without response-level records are excluded and marked as incomplete coverage. Mixed old/new files may also lack older tokens: this is **modern-record coverage**, never a claim of complete historical/account usage. Missing local logs, remote devices and deleted logs cannot be recovered by this collector.
