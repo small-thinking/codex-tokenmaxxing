@@ -202,7 +202,8 @@ final class UsageModel: ObservableObject {
         guard !stopping, let key = historyAccountKey else { return }
         let date = Date()
         guard let store = try? await historyStoreTask?.value else { return }
-        let bins = await store.bins(accountKey: key, at: date)
+        let tokenReport = tokens.report
+        let bins = await store.bins(accountKey: key, at: date, tokenReport: tokenReport)
         let points = await store.pacePoints(accountKey: key, at: date)
         guard !stopping, historyAccountKey == key else { return }
         historyBins = bins

@@ -1,5 +1,6 @@
 import Foundation
 import QuotaCore
+import TokenAccounting
 
 struct QuotaHistoryTests {
     private let hour = Date(timeIntervalSince1970: 1_800_000_000)
@@ -36,6 +37,71 @@ struct QuotaHistoryTests {
         try expect(bins[1].coverageFraction == 1)
         let future = await store.bins(accountKey: keyA, at: hour.addingTimeInterval(7_200), count: 1)
         try expect(future[0].consumedPercent == nil && future[0].expectedSeconds == 0)
+    }
+
+    func delayedQuotaJumpUsesWeightedTokenAttribution() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try QuotaHistoryStore(directory: directory, at: hour)
+        try await store.record(usage(0, 1))
+        for seconds in stride(from: 300.0, through: 10_500.0, by: 300) {
+            try await store.record(usage(seconds, 1))
+        }
+        try await store.record(usage(10_800, 2))
+        let local = [100, 300, 600].enumerated().map { index, input in
+            HourlyTokenUsage(hour: hour.addingTimeInterval(Double(index) * 3_600),
+                             model: "gpt-5.6-luna", counts: TokenCounts(input: Int64(input), total: Int64(input)),
+                             responses: 1)
+        }
+        let report = TokenUsageReport(bins: local, coverageStart: hour, catchingUp: false,
+                                      legacyFiles: 0, warning: nil)
+        let bins = await store.bins(accountKey: keyA, at: hour.addingTimeInterval(10_800),
+                                    count: 4, tokenReport: report)
+        try expect(abs((bins[0].attributedPercent ?? -1) - 0.1) < 0.000_001)
+        try expect(abs((bins[1].attributedPercent ?? -1) - 0.3) < 0.000_001)
+        try expect(abs((bins[2].attributedPercent ?? -1) - 0.6) < 0.000_001)
+        try expect(bins[2].consumedPercent == 1,
+                   "The raw delayed server jump must remain available beside the estimate")
+        try expect(!bins[0].attributionIsPartial && !bins[1].attributionIsPartial)
+        let conserved = bins.compactMap(\.attributedPercent).reduce(0, +)
+        try expect(abs(conserved - 1) < 0.000_001, "Attribution must conserve the confirmed quota delta")
+    }
+
+    func attributionMarksUnknownModelCoveragePartial() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try QuotaHistoryStore(directory: directory, at: hour)
+        try await store.record(usage(0, 10))
+        try await store.record(usage(300, 11))
+        let local = HourlyTokenUsage(hour: hour, model: "unknown",
+                                     counts: TokenCounts(input: 100, total: 100), responses: 1)
+        let report = TokenUsageReport(bins: [local], coverageStart: hour, catchingUp: false,
+                                      legacyFiles: 0, warning: nil)
+        let bins = await store.bins(accountKey: keyA, at: hour.addingTimeInterval(300),
+                                    count: 1, tokenReport: report)
+        try expect(bins[0].attributedPercent == 1)
+        try expect(bins[0].attributionIsPartial, "Unknown model pricing must be disclosed as partial")
+    }
+
+    func attributionDenominatorIncludesOffChartActivity() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try QuotaHistoryStore(directory: directory, at: hour)
+        try await store.record(usage(0, 4))
+        for seconds in stride(from: 300.0, through: 6_900.0, by: 300) {
+            try await store.record(usage(seconds, 4))
+        }
+        try await store.record(usage(7_200, 5))
+        let local = [0.0, 3_600.0].map {
+            HourlyTokenUsage(hour: hour.addingTimeInterval($0), model: "gpt-5.6-luna",
+                             counts: TokenCounts(input: 100, total: 100), responses: 1)
+        }
+        let report = TokenUsageReport(bins: local, coverageStart: hour, catchingUp: false,
+                                      legacyFiles: 0, warning: nil)
+        let visible = await store.bins(accountKey: keyA, at: hour.addingTimeInterval(7_200),
+                                       count: 2, tokenReport: report)
+        try expect(abs((visible[0].attributedPercent ?? -1) - 0.5) < 0.000_001,
+                   "Off-chart activity must remain in the denominator instead of inflating visible hours")
     }
 
     func gapsResetsAndCorrectionsRemainUnknown() async throws {

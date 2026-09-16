@@ -1,4 +1,5 @@
 import Foundation
+import TokenAccounting
 
 /// Observed weekly-quota consumption, apportioned across hour boundaries.
 /// nil consumption means no observed interval; zero means an observed interval with no change.
@@ -7,17 +8,24 @@ public struct HourlyQuotaBin: Equatable, Sendable {
     public let consumedPercent: Double?
     public let observedSeconds: TimeInterval
     public let expectedSeconds: TimeInterval
+    /// A confirmed quota delta, retroactively distributed by local weighted token activity.
+    public let attributedPercent: Double?
+    /// True when known local log/model coverage cannot fully support the attribution interval.
+    public let attributionIsPartial: Bool
 
     public var coverageFraction: Double {
         expectedSeconds > 0 ? min(1, observedSeconds / expectedSeconds) : 0
     }
 
     public init(start: Date, consumedPercent: Double?, observedSeconds: TimeInterval,
-                expectedSeconds: TimeInterval) {
+                expectedSeconds: TimeInterval, attributedPercent: Double? = nil,
+                attributionIsPartial: Bool = false) {
         self.start = start
         self.consumedPercent = consumedPercent
         self.observedSeconds = observedSeconds
         self.expectedSeconds = expectedSeconds
+        self.attributedPercent = attributedPercent
+        self.attributionIsPartial = attributionIsPartial
     }
 }
 
@@ -211,13 +219,17 @@ public actor QuotaHistoryStore {
         return points
     }
 
-    public func bins(accountKey: String, at now: Date, count: Int = 24) -> [HourlyQuotaBin] {
+    public func bins(accountKey: String, at now: Date, count: Int = 24,
+                     tokenReport: TokenUsageReport? = nil) -> [HourlyQuotaBin] {
         guard now.timeIntervalSince1970.isFinite else { return [] }
         let count = min(192, max(1, count))
         let hour = floor(now.timeIntervalSince1970 / 3_600) * 3_600
         let start = hour - Double(count - 1) * 3_600
         var consumed = [Double](repeating: 0, count: count)
         var observed = [TimeInterval](repeating: 0, count: count)
+        var attributed = [Double](repeating: 0, count: count)
+        var hasAttribution = [Bool](repeating: false, count: count)
+        var partialAttribution = [Bool](repeating: false, count: count)
         let scoped = samples.filter { $0.accountKey == accountKey }
         for (left, right) in zip(scoped, scoped.dropFirst()) {
             guard right.connectsToPrevious, Self.canConnect(left, right), right.weekly.fetchedAt <= now else { continue }
@@ -231,12 +243,75 @@ public actor QuotaHistoryStore {
                 consumed[index] += delta * overlap / (b - a)
             }
         }
+        if let tokenReport {
+            attributeQuotaChanges(scoped, tokenReport: tokenReport, now: now, start: start,
+                                  count: count, attributed: &attributed,
+                                  hasAttribution: &hasAttribution, partial: &partialAttribution)
+        }
         return (0..<count).map { index in
             let binStart = start + Double(index) * 3_600
             return HourlyQuotaBin(start: Date(timeIntervalSince1970: binStart),
                                   consumedPercent: observed[index] > 0 ? consumed[index] : nil,
                                   observedSeconds: observed[index],
-                                  expectedSeconds: min(3_600, max(0, now.timeIntervalSince1970 - binStart)))
+                                  expectedSeconds: min(3_600, max(0, now.timeIntervalSince1970 - binStart)),
+                                  attributedPercent: hasAttribution[index] ? attributed[index] : nil,
+                                  attributionIsPartial: partialAttribution[index])
+        }
+    }
+
+    /// Each positive server delta is conserved, but is assigned from the previous change point
+    /// through the delayed observation according to local API-price-equivalent activity.
+    private func attributeQuotaChanges(_ scoped: [Sample], tokenReport: TokenUsageReport, now: Date,
+                                       start: TimeInterval, count: Int, attributed: inout [Double],
+                                       hasAttribution: inout [Bool], partial: inout [Bool]) {
+        guard !tokenReport.bins.isEmpty else { return }
+        var anchor: Sample?
+        for sample in scoped where sample.weekly.fetchedAt <= now {
+            guard let left = anchor else { anchor = sample; continue }
+            guard sample.connectsToPrevious else {
+                anchor = sample
+                continue
+            }
+            let delta = sample.weekly.usedPercent - left.weekly.usedPercent
+            guard delta > 0 else { continue }
+            let interval = DateInterval(start: left.weekly.fetchedAt, end: sample.weekly.fetchedAt)
+            let pieces = weightedPieces(in: interval, report: tokenReport, chartStart: start, count: count)
+            let total = pieces.reduce(0) { $0 + $1.units }
+            if total > 0 {
+                let incomplete = tokenReport.catchingUp || tokenReport.legacyFiles > 0
+                    || tokenReport.warning != nil
+                    || tokenReport.coverageStart.map { $0 > interval.start } ?? true
+                    || pieces.contains(where: { !$0.knownModel })
+                for piece in pieces where piece.units > 0 {
+                    guard let index = piece.index else { continue }
+                    attributed[index] += delta * piece.units / total
+                    hasAttribution[index] = true
+                    partial[index] = partial[index] || incomplete
+                }
+            }
+            anchor = sample
+        }
+    }
+
+    private struct WeightedPiece {
+        /// nil means the activity belongs to the attribution interval but is outside the chart.
+        let index: Int?
+        let units: Double
+        let knownModel: Bool
+    }
+
+    private func weightedPieces(in interval: DateInterval, report: TokenUsageReport,
+                                chartStart: TimeInterval, count: Int) -> [WeightedPiece] {
+        report.bins.compactMap { bin in
+            let binStart = bin.hour.timeIntervalSince1970
+            let overlap = max(0, min(interval.end.timeIntervalSince1970, binStart + 3_600)
+                - max(interval.start.timeIntervalSince1970, binStart))
+            guard overlap > 0 else { return nil }
+            let candidate = Int(floor((binStart - chartStart) / 3_600))
+            let index = (0..<count).contains(candidate) ? candidate : nil
+            return WeightedPiece(index: index,
+                units: TokenCostWeights.activityUnits(for: bin) * overlap / 3_600,
+                knownModel: TokenCostWeights.rates(for: bin.model) != nil)
         }
     }
 

@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [.executable(name: "CodexTokenmaxxing", targets: ["QuotaMenuApp"])],
     targets: [
-        .target(name: "QuotaCore"),
+        .target(name: "QuotaCore", dependencies: ["TokenAccounting"]),
         .target(name: "TokenAccounting"),
         .target(name: "LoginItemSupport"),
         .target(name: "CodexConnection", dependencies: ["QuotaCore"]),
