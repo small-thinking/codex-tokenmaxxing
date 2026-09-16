@@ -11,9 +11,9 @@ public enum RingIcon {
             // NSImage draws lazily; keep appearance resolution scoped to the actual draw.
             appearance.performAsCurrentDrawingAppearance {
                 let center = NSPoint(x: 11, y: 11)
-                // The thinner inner stroke rasterizes optically high at menu-bar size;
-                // nudge its center down slightly so both rings read as concentric.
-                let innerCenter = NSPoint(x: 11, y: 10.75)
+                // The thinner inner stroke reads high at menu-bar size; move its
+                // center down by one point so the offset is visibly corrected.
+                let innerCenter = NSPoint(x: 11, y: 10)
                 // A colored track also keeps a fresh, exhausted (0%) reading visibly red.
                 ring(center: center, radius: 8.5, width: 2.5, fraction: 1,
                      color: (quota ?? neutral).withAlphaComponent(stale ? 0.12 : 0.25))
