@@ -10,8 +10,12 @@ public enum RingIcon {
         let image = NSImage(size: NSSize(width: 22, height: 22), flipped: false) { _ in
             // NSImage draws lazily; keep appearance resolution scoped to the actual draw.
             appearance.performAsCurrentDrawingAppearance {
+                let center = NSPoint(x: 11, y: 11)
+                // The thinner inner stroke rasterizes optically high at menu-bar size;
+                // nudge its center down slightly so both rings read as concentric.
+                let innerCenter = NSPoint(x: 11, y: 10.75)
                 // A colored track also keeps a fresh, exhausted (0%) reading visibly red.
-                ring(radius: 8.5, width: 2.5, fraction: 1,
+                ring(center: center, radius: 8.5, width: 2.5, fraction: 1,
                      color: (quota ?? neutral).withAlphaComponent(stale ? 0.12 : 0.25))
                 guard let snapshot, let quota else {
                     let attributes: [NSAttributedString.Key: Any] = [
@@ -21,13 +25,13 @@ public enum RingIcon {
                     NSString(string: "?").draw(at: NSPoint(x: 8, y: 4), withAttributes: attributes)
                     return
                 }
-                ring(radius: 8.5, width: 2.5, fraction: snapshot.remainingPercent / 100,
+                ring(center: center, radius: 8.5, width: 2.5, fraction: snapshot.remainingPercent / 100,
                      color: quota.withAlphaComponent(stale ? 0.45 : 1))
                 if let time = snapshot.remainingTimeFraction(at: now) {
                     let countdown = stale ? neutral : timeColor(remainingFraction: time, appearance: appearance)
-                    ring(radius: 4.75, width: 1.8, fraction: 1,
+                    ring(center: innerCenter, radius: 4.75, width: 1.8, fraction: 1,
                          color: countdown.withAlphaComponent(stale ? 0.10 : 0.25))
-                    ring(radius: 4.75, width: 1.8, fraction: time,
+                    ring(center: innerCenter, radius: 4.75, width: 1.8, fraction: time,
                          color: countdown.withAlphaComponent(stale ? 0.35 : 1))
                 }
             }
@@ -61,13 +65,15 @@ public enum RingIcon {
         return NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
     }
 
-    private static func ring(radius: CGFloat, width: CGFloat, fraction: Double, color: NSColor) {
+    private static func ring(center: NSPoint, radius: CGFloat, width: CGFloat,
+                             fraction: Double, color: NSColor) {
         guard fraction > 0 else { return }
         let path = NSBezierPath()
         if fraction >= 1 {
-            path.appendOval(in: NSRect(x: 11 - radius, y: 11 - radius, width: radius * 2, height: radius * 2))
+            path.appendOval(in: NSRect(x: center.x - radius, y: center.y - radius,
+                                       width: radius * 2, height: radius * 2))
         } else {
-            path.appendArc(withCenter: NSPoint(x: 11, y: 11), radius: radius,
+            path.appendArc(withCenter: center, radius: radius,
                            startAngle: 90, endAngle: 90 - 360 * fraction, clockwise: true)
             path.lineCapStyle = .round
         }
