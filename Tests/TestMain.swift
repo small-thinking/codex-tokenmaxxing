@@ -73,6 +73,7 @@ struct TestMain {
         let resets = ResetCreditTests()
         let rings = RingIconTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("official price-equivalent token weights", { try tokenUsage.officialPriceEquivalentWeights() }),
             ("token chart hourly window and model effort grouping", { try tokenActivity.chartWindowAndModelEffortGrouping() }),
             ("token reasoning follows turns and distinct groups", { try await tokenUsage.reasoningLevelsFollowTurnsAndRemainDistinct() }),
             ("token reasoning migration preserves totals on restart", { try await tokenUsage.legacyReasoningMigrationPreservesTotalsAcrossRestart() }),
@@ -94,6 +95,9 @@ struct TestMain {
             ("pace recovery never extends past retention", { try await paceHistory.recoveryNeverExtendsPastRetention() }),
             ("pace write failure retains immutable memory", { try await paceHistory.writeFailureKeepsImmutablePaceInMemory() }),
             ("hourly allocation", { try await history.hourlyBoundaryAllocation() }),
+            ("delayed quota jump weighted attribution", { try await history.delayedQuotaJumpUsesWeightedTokenAttribution() }),
+            ("unknown model attribution is partial", { try await history.attributionMarksUnknownModelCoveragePartial() }),
+            ("off-chart attribution stays in denominator", { try await history.attributionDenominatorIncludesOffChartActivity() }),
             ("dynamic required pace and validity boundaries", { try core.testRequiredPacePerHour() }),
             ("login item reflects initial and external system state", { try login.initialStateAndExternalChangesAreReadOnly() }),
             ("login item registration approval and failure states", { try login.registrationApprovalAndErrorsReflectSystemState() }),

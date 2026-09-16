@@ -2,6 +2,21 @@ import Foundation
 import TokenAccounting
 
 struct TokenUsageTests {
+    func officialPriceEquivalentWeights() throws {
+        try expect(TokenCostWeights.rates(for: "gpt-5.6-luna") == .init(
+            input: 1, cachedInput: 0.1, cacheWriteInput: 1.25, output: 6))
+        try expect(TokenCostWeights.rates(for: "gpt-5.6-terra") == .init(
+            input: 10, cachedInput: 1, cacheWriteInput: 12.5, output: 60))
+        try expect(TokenCostWeights.rates(for: "gpt-5.6-sol") == .init(
+            input: 20, cachedInput: 2, cacheWriteInput: 25, output: 100))
+        try expect(TokenCostWeights.rates(for: "gpt-6-astra") == .init(
+            input: 50, cachedInput: 5, cacheWriteInput: 62.5, output: 250))
+        let bin = HourlyTokenUsage(hour: Date(), model: "gpt-5.6-luna",
+            counts: TokenCounts(input: 100, cachedInput: 20, cacheWriteInput: 10,
+                                output: 5, total: 105), responses: 1)
+        try expect(abs(TokenCostWeights.activityUnits(for: bin) - 114.5) < 0.000_001,
+                   "Cached input and cache-write premium must not double count input")
+    }
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func fixture() throws -> (URL, URL) {

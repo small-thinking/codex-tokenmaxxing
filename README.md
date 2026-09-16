@@ -9,7 +9,7 @@ A small native macOS menu bar app for your Codex **weekly quota**.
 - The inner-ring row combines its reset countdown and compact local reset date (for example `09/19 1 AM`); hover for the exact date and minute. The weekly under/over pace gap sits with the hourly chart.
 - Compare the rings’ **filled proportions/angles**, not their physical arc lengths. Quota remaining minus time remaining gives the gap from uniform weekly use in percentage points: +20 pp (60% quota, 40% time) is under pace. The compact label writes this as `Under pace · 20%`; its tooltip explains that it is an absolute percentage-point gap, not a relative percentage change. This does not measure recent activity. Stale readings hide pace.
 
-This app focuses on a compact menu bar overview. The hourly activity chart compares observed quota consumption with recorded pace history. Launch at login is available in the popover.
+This app focuses on a compact menu bar overview. The hourly activity chart compares quota attribution with recorded pace history. Launch at login is available in the popover.
 
 ## Requirements
 
@@ -123,13 +123,34 @@ For a read-only diagnostic that prints only count and expiry dates (no card IDs 
 
 ### Hourly activity and pace
 
-The last 24 hourly bins show **observed weekly-quota consumption**, not raw token counts. The dashed line connects **historically recorded pace samples**: `quota remaining / hours until reset` at each sample's actual timestamp. The first successful quota reading in each UTC half-hour slot records one immutable value. Later quota changes or elapsed time never revise old points, and there is no live horizontal target line. Hover a dot for its exact value and local recording time; the header shows the latest recorded pace.
+The last 24 hourly bins preserve **server-observed weekly-quota changes** as thin marks and show a wider **estimated attribution** based on local weighted token activity. The dashed line connects **historically recorded pace samples**: `quota remaining / hours until reset` at each sample's actual timestamp. The first successful quota reading in each UTC half-hour slot records one immutable value. Later quota changes or elapsed time never revise old pace points, and there is no live horizontal target line. Hover a dot for its exact value and local recording time; the header shows the latest recorded pace.
+
+The quota API reports an integer percentage, so a confirmed 1% increase can appear hours after the
+local work that caused it. Whenever the percentage rises, the app distributes that confirmed delta
+from the previous change point through the new observation:
+
+```text
+hour estimate = confirmed quota delta × hour weighted activity / interval weighted activity
+```
+
+Weighted activity uses public API prices normalized to one GPT-5.6 Luna input token. Current model
+input multipliers are Luna `1`, Terra `10`, Sol `20`, and Astra `50`; cached input is `0.1×` each
+model's input rate, cache writes are `1.25×`, and output uses each model's published output price.
+Reasoning tokens are already included in output and are not counted twice. See the official model
+pages for [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+[Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
+[Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), and
+[Astra](https://developers.openai.com/api/docs/models/gpt-6-astra).
+
+This is an attribution proxy, not OpenAI's Codex subscription quota formula. Faded estimates mean
+the local history is incomplete or a model has no known weight. If no local weighted activity can
+explain an increase, the chart keeps only the observed jump instead of inventing a distribution.
 
 Sampling uses the existing successful quota refreshes, with no extra polls or disk writes. After an offline gap or app restart, missing half-hour pace points can be recovered if the surrounding readings belong to the same account and have exactly the same quota percentage and reset time. These estimates assume quota stayed unchanged during the gap: each uses that remaining quota divided by the hours until reset at its historical timestamp. Hollow dots and dotted segments distinguish estimates from observed samples. Existing observed values are never changed. Changed quota, account switches, reset changes and quota corrections leave gaps disconnected. Matching endpoints cannot prove that no usage occurred on another device or below the quota reporting precision. Old quota-only archives retain their bars but are not backfilled with pace points that were never recorded. A single new point appears as a dot until another connected sample is available. This differs from the top-level pace gap, which still compares quota remaining with weekly time remaining.
 
-Each successful poll records a quota snapshot. The increase between adjacent readings is split across hour boundaries in proportion to elapsed time, so within-interval timing is an estimate. Only readings within 15 minutes and the same quota window can connect. Resets, decreasing values, clock reversal, account switches and app restarts break the chain. Missing data is never treated as zero usage.
+Each successful poll records a quota snapshot. The thin observed mark still splits the increase between adjacent readings across hour boundaries in proportion to elapsed time. The wider estimate can revise earlier displayed hours when a delayed integer change arrives, but always conserves the confirmed delta. Only readings within 15 minutes and the same quota window can connect. Resets, decreasing values, clock reversal, account switches and app restarts break the chain. Missing data is never treated as zero usage.
 
-Solid bars have at least 95% observation coverage. Faded bars indicate incomplete coverage or the current, unfinished hour; a dash indicates no observed interval. Hover over a bar for its value, local hour and observation coverage. Partial hours should not be compared directly with the recorded full-hour pace. On first launch the chart collects new readings; it cannot backfill activity from before installation.
+Faded estimates indicate incomplete local token coverage. A dash indicates no observed interval or attributable activity. Hover over a bar for both the estimate and direct observation, local hour, and coverage. Partial hours should not be compared directly with the recorded full-hour pace. On first launch the chart collects new quota readings; it cannot infer a quota delta from before installation.
 
 Recovery stores immutable gap endpoints separately from quota observations; estimated values are derived from those fixed endpoints, so advancing the clock never changes them. Historical usage bars remain unobserved across sleep and restart, even when pace can be estimated. No backfill runs before the first recorded pace sample.
 

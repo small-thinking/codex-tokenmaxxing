@@ -32,10 +32,13 @@ func renderPreview(to path: String) {
     model.historyBins = (0..<24).map { index in
         let missing = empty || index < 3 || index == 15
         let consumed: Double? = missing ? nil : [0, 0.15, 0.4, 0.9, 1.3, 0.7][index % 6]
+        let attributed: Double? = missing ? nil : [0.05, 0.22, 0.48, 0.62, 0.35, 0.18][index % 6]
         let observed: Double = missing ? 0 : (index == 9 ? 900 : (index == 23 ? 300 : 3600))
         return HourlyQuotaBin(start: Date(timeIntervalSince1970: hour - Double(23 - index) * 3600),
                               consumedPercent: consumed, observedSeconds: observed,
-                              expectedSeconds: index == 23 ? 600 : 3600)
+                              expectedSeconds: index == 23 ? 600 : 3600,
+                              attributedPercent: attributed,
+                              attributionIsPartial: index == 9 || index == 23)
     }
     if !empty {
         model.pacePoints = (0..<43).filter { !(25...28).contains($0) }.map { index in

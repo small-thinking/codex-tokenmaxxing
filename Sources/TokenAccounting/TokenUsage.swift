@@ -84,6 +84,16 @@ public struct TokenUsageReport: Equatable, Sendable {
     public let legacyFiles: Int
     public let warning: String?
 
+    public init(bins: [HourlyTokenUsage], latestScan: TokenScanStatistics = TokenScanStatistics(),
+                coverageStart: Date?, catchingUp: Bool, legacyFiles: Int, warning: String?) {
+        self.bins = bins
+        self.latestScan = latestScan
+        self.coverageStart = coverageStart
+        self.catchingUp = catchingUp
+        self.legacyFiles = legacyFiles
+        self.warning = warning
+    }
+
     public func total(in interval: DateInterval) -> TokenCounts {
         bins.filter { $0.hour >= interval.start && $0.hour < interval.end }
             .reduce(TokenCounts()) { $0.adding($1.counts) }
