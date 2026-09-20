@@ -11,9 +11,6 @@ public enum RingIcon {
             // NSImage draws lazily; keep appearance resolution scoped to the actual draw.
             appearance.performAsCurrentDrawingAppearance {
                 let center = NSPoint(x: 11, y: 11)
-                // The thinner inner stroke reads high at menu-bar size; move its
-                // center down by one point so the offset is visibly corrected.
-                let innerCenter = NSPoint(x: 11, y: 10)
                 // A colored track also keeps a fresh, exhausted (0%) reading visibly red.
                 ring(center: center, radius: 8.5, width: 2.5, fraction: 1,
                      color: (quota ?? neutral).withAlphaComponent(stale ? 0.12 : 0.25))
@@ -28,6 +25,10 @@ public enum RingIcon {
                 ring(center: center, radius: 8.5, width: 2.5, fraction: snapshot.remainingPercent / 100,
                      color: quota.withAlphaComponent(stale ? 0.45 : 1))
                 if let time = snapshot.remainingTimeFraction(at: now) {
+                    // A contrasting red inner stroke reads high at menu-bar size, but the
+                    // compensation becomes visible when both rings are green. Keep the
+                    // one-point correction while red, then ease it out by the green band.
+                    let innerCenter = NSPoint(x: 11, y: 11 - innerVerticalOffset(remainingFraction: time))
                     let countdown = stale ? neutral : timeColor(remainingFraction: time, appearance: appearance)
                     ring(center: innerCenter, radius: 4.75, width: 1.8, fraction: 1,
                          color: countdown.withAlphaComponent(stale ? 0.10 : 0.25))
@@ -51,6 +52,11 @@ public enum RingIcon {
         default: band = 0
         }
         return quotaColor(remaining: band, appearance: appearance)
+    }
+
+    static func innerVerticalOffset(remainingFraction: Double) -> CGFloat {
+        let progress = min(max((remainingFraction - 0.2) / 0.6, 0), 1)
+        return CGFloat(progress)
     }
 
     public static func quotaColor(remaining: Double, appearance: NSAppearance) -> NSColor {

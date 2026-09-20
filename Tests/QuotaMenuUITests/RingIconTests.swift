@@ -1,6 +1,6 @@
 import AppKit
 import QuotaCore
-import QuotaMenuUI
+@testable import QuotaMenuUI
 
 struct RingIconTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -117,6 +117,19 @@ struct RingIconTests {
         try expect(snapshot(60, time: 0).paceGap(at: now) == nil)
         let missing = WeeklySnapshot(usedPercent: 40, resetsAt: nil, windowDurationMins: 10080, fetchedAt: now)
         try expect(missing.paceGap(at: now) == nil)
+    }
+
+    func adaptiveInnerRingOffset() throws {
+        try expect(abs(RingIcon.innerVerticalOffset(remainingFraction: 1) - 1) < 0.001,
+                   "A new, red reset window keeps the one-point visual correction")
+        try expect(abs(RingIcon.innerVerticalOffset(remainingFraction: 0.8) - 1) < 0.001,
+                   "The correction persists throughout the red time band")
+        try expect(abs(RingIcon.innerVerticalOffset(remainingFraction: 0.5) - 0.5) < 0.001,
+                   "The correction eases out as the reset approaches")
+        try expect(abs(RingIcon.innerVerticalOffset(remainingFraction: 0.2)) < 0.001,
+                   "The green time band is mathematically concentric")
+        try expect(abs(RingIcon.innerVerticalOffset(remainingFraction: 0.01)) < 0.001,
+                   "Near reset, the inner ring stays concentric")
     }
 
     private func isNeutral(_ color: NSColor) -> Bool {

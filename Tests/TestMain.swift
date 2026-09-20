@@ -110,6 +110,7 @@ struct TestMain {
             ("quota ring threshold colors in light and dark", { try rings.thresholdColors() }),
             ("unknown and stale rings", { try rings.unknownAndStale() }),
             ("inverse time colors and weekly pace", { try rings.inverseTimeColorsAndPace() }),
+            ("adaptive inner ring offset", { try rings.adaptiveInnerRingOffset() }),
             ("missing or malformed reset banks preserve quota", { try resets.missingAndMalformedBanksPreserveWeeklyUsage() }),
             ("reset counts survive partial details", { try resets.countsRemainAuthoritativeWithMissingOrPartialDetails() }),
             ("reset expiry ordering and unknown dates", { try resets.earliestExpiryFirstAndUnknownDatesRemainUnknown() }),
