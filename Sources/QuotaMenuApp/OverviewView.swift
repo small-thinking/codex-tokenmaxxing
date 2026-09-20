@@ -18,6 +18,7 @@ struct OverviewView: View {
                     Text("WEEKLY").font(.system(size: 9, weight: .semibold, design: .rounded))
                         .tracking(1).foregroundStyle(.secondary)
                 }
+                .padding(.top, 3)
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(model.percentText)
