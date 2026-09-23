@@ -72,7 +72,9 @@ struct TestMain {
         let connection = CodexConnectionTests()
         let resets = ResetCreditTests()
         let rings = RingIconTests()
+        let hourlyActivity = HourlyActivityViewTests()
         let checks: [(String, () async throws -> Void)] = [
+            ("hourly chart caps extreme pace without flattening bars", { try hourlyActivity.extremePaceDoesNotFlattenHourlyBars() }),
             ("official price-equivalent token weights", { try tokenUsage.officialPriceEquivalentWeights() }),
             ("token chart hourly window and model effort grouping", { try tokenActivity.chartWindowAndModelEffortGrouping() }),
             ("token reasoning follows turns and distinct groups", { try await tokenUsage.reasoningLevelsFollowTurnsAndRemainDistinct() }),

@@ -17,10 +17,27 @@ public struct HourlyActivityView: View {
         self.message = message
     }
 
-    private var ceiling: Double {
-        max(1, max(bins.compactMap { max($0.consumedPercent ?? 0, $0.attributedPercent ?? 0) }.max() ?? 0,
-                   pacePoints.map(\.percentPerHour).max() ?? 0) * 1.15)
+    static let ceilingCap = 5.0
+
+    static func chartMaximum(bins: [HourlyQuotaBin], pacePoints: [PacePoint]) -> Double {
+        max(bins.map { max($0.consumedPercent ?? 0, $0.attributedPercent ?? 0) }.max() ?? 0,
+            pacePoints.map(\.percentPerHour).max() ?? 0)
     }
+
+    static func chartCeiling(bins: [HourlyQuotaBin], pacePoints: [PacePoint]) -> Double {
+        min(ceilingCap, max(1, chartMaximum(bins: bins, pacePoints: pacePoints) * 1.15))
+    }
+
+    static func barHeight(_ value: Double, ceiling: Double, height: CGFloat) -> CGFloat {
+        max(2, height * CGFloat(min(value, ceiling) / ceiling))
+    }
+
+    static func paceY(_ value: Double, ceiling: Double, height: CGFloat) -> CGFloat {
+        min(height - 4, max(4, height * (1 - CGFloat(min(value, ceiling) / ceiling))))
+    }
+
+    private var ceiling: Double { Self.chartCeiling(bins: bins, pacePoints: pacePoints) }
+    private var hasClippedValues: Bool { Self.chartMaximum(bins: bins, pacePoints: pacePoints) > ceiling }
     private var hasObservations: Bool { bins.contains { $0.consumedPercent != nil } }
 
     public var body: some View {
@@ -52,17 +69,17 @@ public struct HourlyActivityView: View {
                                         ZStack(alignment: .bottom) {
                                             RoundedRectangle(cornerRadius: 1)
                                                 .fill(Color.teal.opacity(bin.attributionIsPartial ? 0.35 : 0.62))
-                                                .frame(height: max(2, height * estimate / ceiling))
+                                                .frame(height: Self.barHeight(estimate, ceiling: ceiling, height: height))
                                             if let observed = bin.consumedPercent, observed > 0 {
                                                 RoundedRectangle(cornerRadius: 1)
                                                     .fill(Color.teal)
-                                                    .frame(width: 2, height: max(2, height * observed / ceiling))
+                                                    .frame(width: 2, height: Self.barHeight(observed, ceiling: ceiling, height: height))
                                             }
                                         }
                                     } else if let value = bin.consumedPercent {
                                         RoundedRectangle(cornerRadius: 1)
                                             .fill(Color.teal.opacity(isPartial(bin) ? 0.45 : 1))
-                                            .frame(height: max(2, height * value / ceiling))
+                                            .frame(height: Self.barHeight(value, ceiling: ceiling, height: height))
                                     } else {
                                         Text("–").font(.system(size: 9)).foregroundStyle(.secondary)
                                             .frame(height: 5)
@@ -90,10 +107,10 @@ public struct HourlyActivityView: View {
                                     Path { path in
                                         path.move(to: CGPoint(
                                             x: width * (previous.date.timeIntervalSince1970 - start) / duration,
-                                            y: height * (1 - previous.percentPerHour / ceiling)))
+                                            y: Self.paceY(previous.percentPerHour, ceiling: ceiling, height: height)))
                                         path.addLine(to: CGPoint(
                                             x: width * (sample.date.timeIntervalSince1970 - start) / duration,
-                                            y: height * (1 - sample.percentPerHour / ceiling)))
+                                            y: Self.paceY(sample.percentPerHour, ceiling: ceiling, height: height)))
                                     }.stroke(Color.orange.opacity(estimated ? 0.65 : 1),
                                              style: StrokeStyle(lineWidth: 1.5, dash: estimated ? [1, 3] : [3, 3]))
                                         .allowsHitTesting(false)
@@ -105,7 +122,7 @@ public struct HourlyActivityView: View {
                                     .frame(width: 4, height: 4)
                                     .padding(3).contentShape(Rectangle())
                                     .position(x: width * (sample.date.timeIntervalSince1970 - start) / duration,
-                                              y: height * (1 - sample.percentPerHour / ceiling))
+                                              y: Self.paceY(sample.percentPerHour, ceiling: ceiling, height: height))
                                     .help(paceDetail(sample)).accessibilityLabel(paceDetail(sample))
                             }
                         }
@@ -119,6 +136,10 @@ public struct HourlyActivityView: View {
                         if let last = bins.last { Text(hour(last.start)) }
                     }.font(.system(size: 8)).foregroundStyle(.secondary)
                 }
+            }
+            if hasClippedValues {
+                Text("Values above 5%/h clipped · hover for actual")
+                    .font(.system(size: 9)).foregroundStyle(.secondary)
             }
             if pacePoints.contains(where: { $0.isEstimated || $0.estimatedConnection }) {
                 Text("Dotted pace · estimated while offline")

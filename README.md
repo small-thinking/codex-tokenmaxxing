@@ -125,6 +125,8 @@ For a read-only diagnostic that prints only count and expiry dates (no card IDs 
 
 The last 24 hourly bins preserve **server-observed weekly-quota changes** as thin marks and show a wider **estimated attribution** based on local weighted token activity. The dashed line connects **historically recorded pace samples**: `quota remaining / hours until reset` at each sample's actual timestamp. The first successful quota reading in each UTC half-hour slot records one immutable value. Later quota changes or elapsed time never revise old pace points, and there is no live horizontal target line. Hover a dot for its exact value and local recording time; the header shows the latest recorded pace.
 
+The chart's vertical scale tops out at 5% per hour so a near-reset pace spike does not flatten the other bars. Values above that limit are drawn at the top with a clipped-value notice; hover details and stored history keep their actual values.
+
 The quota API reports an integer percentage, so a confirmed 1% increase can appear hours after the
 local work that caused it. Whenever the percentage rises, the app distributes that confirmed delta
 from the previous change point through the new observation:
